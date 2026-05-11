@@ -1,0 +1,505 @@
+openapi: 3.1.0
+info:
+  title: AI News Scraper API
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:4300
+paths:
+  /api/health:
+    get:
+      summary: Health check for the profile API
+      responses:
+        "200":
+          description: API is reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /api/profiles:
+    get:
+      summary: List saved profiles
+      responses:
+        "200":
+          description: Profiles returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Profile"
+    post:
+      summary: Create a new profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileInput"
+      responses:
+        "201":
+          description: Profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          description: Validation error
+  /api/profiles/{id}:
+    put:
+      summary: Update an existing profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileInput"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          description: Validation error
+        "404":
+          description: Profile not found
+    delete:
+      summary: Delete an existing profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Profile deleted
+        "404":
+          description: Profile not found
+  /api/news:
+    get:
+      summary: List news items for a selected profile
+      parameters:
+        - name: profileId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Profile news returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NewsItem"
+        "400":
+          description: Invalid profileId query value
+  /api/news/{id}/favorite:
+    put:
+      summary: Update favorite state for one news item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewsFavoriteUpdate"
+      responses:
+        "200":
+          description: Favorite state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewsItem"
+        "400":
+          description: Validation error
+        "404":
+          description: News item not found for profile
+  /api/errors:
+    get:
+      summary: List scrape errors for a selected profile
+      parameters:
+        - name: profileId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Profile errors returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ErrorItem"
+        "400":
+          description: Invalid profileId query value
+    post:
+      summary: Create a scrape error entry for a profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ErrorItemInput"
+      responses:
+        "201":
+          description: Error entry created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorItem"
+        "400":
+          description: Validation error
+  /api/errors/{id}:
+    get:
+      summary: Get one scrape error for a selected profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: profileId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Error returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorItem"
+        "400":
+          description: Validation error
+        "404":
+          description: Error not found
+  /api/notification-profiles:
+    get:
+      summary: List notification profiles
+      responses:
+        "200":
+          description: Notification profiles returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationProfile"
+    post:
+      summary: Create a notification profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationProfileInput"
+      responses:
+        "201":
+          description: Notification profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationProfile"
+        "400":
+          description: Validation error
+  /api/notification-profiles/{id}:
+    put:
+      summary: Update a notification profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationProfileInput"
+      responses:
+        "200":
+          description: Notification profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationProfile"
+        "400":
+          description: Validation error
+        "404":
+          description: Notification profile not found
+    delete:
+      summary: Delete a notification profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Notification profile deleted
+        "404":
+          description: Notification profile not found
+  /api/news/profile/scrape:
+    post:
+      summary: Trigger scrape webhook for a profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId:
+                  type: integer
+      responses:
+        "202":
+          description: Trigger request accepted by backend
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: accepted
+        "400":
+          description: Validation error
+        "502":
+          description: Upstream scrape webhook call failed
+        "503":
+          description: Scrape webhook configuration is missing
+components:
+  schemas:
+    ProfileUrl:
+      type: object
+      required: [url, description]
+      properties:
+        url:
+          type: string
+          format: uri
+        description:
+          type: string
+    RssSettings:
+      type: object
+      required: [feedUrl, title, refreshCadence, format, category]
+      properties:
+        feedUrl:
+          type: string
+          format: uri
+        title:
+          type: string
+        refreshCadence:
+          type: string
+        format:
+          type: string
+        category:
+          type: string
+    ProfileInput:
+      type: object
+      required:
+        [name, description, useCustomSources, tags, roles, urls, rssFeeds]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        useCustomSources:
+          type: boolean
+          description: When true, user-provided URL and RSS sources are required. When false, API stores empty source arrays and AI-recommended sources are used.
+          default: false
+        tags:
+          type: array
+          items:
+            type: string
+        roles:
+          type: array
+          items:
+            type: string
+          description: Optional role labels for profile metadata and background scraping context. Duplicate names are rejected case-insensitively.
+        urls:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfileUrl"
+          description: Required with at least 1 entry only when useCustomSources=true.
+        rssFeeds:
+          type: array
+          items:
+            $ref: "#/components/schemas/RssSettings"
+          description: Required with at least 1 entry only when useCustomSources=true.
+        notificationProfileId:
+          type: integer
+          nullable: true
+          description: Backward-compatible single notification profile id. When notificationChannelIds is provided, this value is normalized to the first selected channel id.
+        notificationChannelIds:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+          description: Optional multi-select notification channel ids associated with the profile. Every id must exist in notification profiles; unknown ids return 400.
+    Profile:
+      allOf:
+        - $ref: "#/components/schemas/ProfileInput"
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: integer
+    NewsItem:
+      type: object
+      required:
+        [id, profileId, title, summary, origin, link, timestamp, favorite]
+      properties:
+        id:
+          type: integer
+        profileId:
+          type: integer
+        title:
+          type: string
+        summary:
+          type: string
+        origin:
+          type: string
+        link:
+          type: string
+          format: uri
+        timestamp:
+          type: string
+          format: date-time
+        favorite:
+          type: boolean
+    NewsFavoriteUpdate:
+      type: object
+      required: [profileId, favorite]
+      properties:
+        profileId:
+          type: integer
+        favorite:
+          type: boolean
+    ErrorItemInput:
+      type: object
+      required:
+        [
+          profileId,
+          errorMessage,
+          errorDescription,
+          errorStack,
+          errorHttpCode,
+          nodeName,
+          nodeType,
+          workflowName,
+          workflowId,
+          json,
+        ]
+      properties:
+        profileId:
+          type: integer
+        traceId:
+          type: string
+          description: Optional trace identifier. If omitted, backend generates one.
+        errorMessage:
+          type: string
+        errorDescription:
+          type: string
+        errorStack:
+          type: string
+        errorHttpCode:
+          type: integer
+          minimum: 100
+          maximum: 999
+        nodeName:
+          type: string
+        nodeType:
+          type: string
+        workflowName:
+          type: string
+        workflowId:
+          type: string
+        json:
+          type: object
+          additionalProperties: true
+    ErrorItem:
+      allOf:
+        - $ref: "#/components/schemas/ErrorItemInput"
+        - type: object
+          required: [id, createdTs, updatedTs]
+          properties:
+            id:
+              type: integer
+            createdTs:
+              type: string
+              format: date-time
+            updatedTs:
+              type: string
+              format: date-time
+    NotificationProfileInput:
+      type: object
+      required: [name, channels]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        channels:
+          type: array
+          items:
+            oneOf:
+              - type: object
+                required: [channelType, emailAddresses]
+                properties:
+                  channelType:
+                    type: string
+                    enum: [email]
+                  emailAddresses:
+                    type: array
+                    items:
+                      type: string
+                      format: email
+              - type: object
+                required: [channelType, slackWebhookUrl]
+                properties:
+                  channelType:
+                    type: string
+                    enum: [slack]
+                  slackWebhookUrl:
+                    type: string
+                    format: uri
+    NotificationProfile:
+      allOf:
+        - $ref: "#/components/schemas/NotificationProfileInput"
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: integer

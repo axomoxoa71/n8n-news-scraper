@@ -1,0 +1,35 @@
+@import url("https://fonts.googleapis.com/css2?family=Merriweather:wght@700&family=Space+Grotesk:wght@400;500;700&display=swap");
+
+:root {
+  --ink-0: #f5fbff;
+  --ink-1: #c5dde8;
+  --highlight: #ffd992;
+  --headline-font: "Merriweather", serif;
+  --body-font: "Space Grotesk", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--body-font);
+  background:
+    radial-gradient(
+      circle at 15% 18%,
+      rgba(255, 190, 113, 0.36),
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 85% 76%,
+      rgba(118, 255, 223, 0.34),
+      transparent 38%
+    ),
+    #081923;
+}
+
+#root {
+  min-height: 100vh;
+}

@@ -1,0 +1,241 @@
+[
+    {
+        "name": "AI LLM",
+        "description": "A profile for testing with LLMs",
+        "useCustomSources": true,
+        "tags": [
+            "llm",
+            "anthropic",
+            "claude"
+        ],
+        "roles": [
+            "Solution Architect",
+            "Software Engineer",
+            "ML Engineer"
+        ],
+        "urls": [
+            {
+                "url": "https://www.technologyreview.com/topic/artificial-intelligence/",
+                "description": "MIT Technology Review AI Coverage"
+            },
+            {
+                "url": "https://www.unite.ai/",
+                "description": "Unite AI News"
+            },
+            {
+                "url": "https://aiuniverseexplorer.com/ai-news-aggregator/",
+                "description": "AI Universe Explorer"
+            },
+            {
+                "url": "https://invalid/",
+                "description": "Invalid URL for validation testing"
+            }
+        ],
+        "rssFeeds": [
+            {
+                "feedUrl": "https://planet-ai.net/rss.xml",
+                "title": "Planet AI",
+                "refreshCadence": "Every 30 minutes",
+                "format": "RSS 2.0",
+                "category": "LLM Updates"
+            },
+            {
+                "feedUrl": "https://huggingface.co/blog/feed.xml",
+                "title": "Hugging Face Blog",
+                "refreshCadence": "Hourly",
+                "format": "RSS 2.0",
+                "category": "LLM Research"
+            },
+            {
+                "feedUrl": "https://invalid/rss.xml",
+                "title": "Invalid RSS",
+                "refreshCadence": "Every 30 minutes",
+                "format": "RSS 2.0",
+                "category": "Invalid Feed Testing"
+            }
+        ],
+        "_notificationProfile": {
+            "name": "Test Channel",
+            "description": "Test notification channel for development.",
+            "channels": [
+                {
+                    "channelType": "email",
+                    "emailAddresses": [
+                        "robert.bernhard71@gmail.com"
+                    ]
+                }
+            ]
+        }
+    },
+    {
+        "name": "Agent Ecosystem",
+        "description": "Autonomous agents and tooling updates.",
+        "useCustomSources": true,
+        "tags": [
+            "agents",
+            "automation",
+            "orchestration"
+        ],
+        "roles": [
+            "Architect",
+            "Software Engineer",
+            "DevOps Engineer"
+        ],
+        "urls": [
+            {
+                "url": "https://www.technologyreview.com/topic/artificial-intelligence/",
+                "description": "MIT Technology Review AI"
+            },
+            {
+                "url": "https://www.deeplearning.ai/the-batch/",
+                "description": "DeepLearning.AI The Batch"
+            },
+            {
+                "url": "https://lilianweng.github.io/",
+                "description": "Lilian Weng Blog on Agents"
+            }
+        ],
+        "rssFeeds": [
+            {
+                "feedUrl": "https://feeds.feedburner.com/oreilly/radar/atom",
+                "title": "OReilly Radar",
+                "refreshCadence": "Hourly",
+                "format": "Atom",
+                "category": "AI Engineering"
+            },
+            {
+                "feedUrl": "https://www.deeplearning.ai/the-batch/rss.xml",
+                "title": "DeepLearning.AI The Batch",
+                "refreshCadence": "Daily",
+                "format": "RSS 2.0",
+                "category": "Agent Research"
+            },
+            {
+                "feedUrl": "https://simonwillison.net/atom/everything/",
+                "title": "Simon Willison Everything",
+                "refreshCadence": "Hourly",
+                "format": "Atom",
+                "category": "AI Tools"
+            }
+        ]
+    },
+    {
+        "name": "Model Releases",
+        "description": "Provider model and API release notes.",
+        "useCustomSources": true,
+        "tags": [
+            "releases",
+            "models",
+            "apis"
+        ],
+        "roles": [
+            "CTO",
+            "Solution Architect",
+            "ML Engineer"
+        ],
+        "urls": [
+            {
+                "url": "https://openai.com/news/",
+                "description": "OpenAI announcements"
+            },
+            {
+                "url": "https://www.anthropic.com/news",
+                "description": "Anthropic News"
+            },
+            {
+                "url": "https://blog.google/technology/ai/",
+                "description": "Google AI Blog"
+            }
+        ],
+        "rssFeeds": [
+            {
+                "feedUrl": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+                "title": "The Verge AI",
+                "refreshCadence": "Hourly",
+                "format": "RSS 2.0",
+                "category": "AI Industry"
+            },
+            {
+                "feedUrl": "https://openai.com/blog/rss.xml",
+                "title": "OpenAI Blog",
+                "refreshCadence": "Daily",
+                "format": "RSS 2.0",
+                "category": "Model Releases"
+            },
+            {
+                "feedUrl": "https://ai.googleblog.com/feeds/posts/default",
+                "title": "Google AI Blog",
+                "refreshCadence": "Daily",
+                "format": "Atom",
+                "category": "Model Research"
+            }
+        ]
+    },
+    {
+        "name": "Error Test Profile",
+        "description": "Dedicated profile for error indicator and profile switching tests.",
+        "useCustomSources": false,
+        "tags": [
+            "errors",
+            "switching",
+            "ui-test"
+        ],
+        "roles": [
+            "QA Engineer",
+            "SRE",
+            "Platform Engineer"
+        ],
+        "urls": [],
+        "rssFeeds": [],
+        "_seedErrors": [
+            {
+                "traceId": "e4e4f6dd2df74f34b7746e72e5f67011",
+                "executionId": "exec-seed-001",
+                "errorMessage": "Synthetic switching test error",
+                "errorDescription": "Intentional seeded error used to verify profile switching and error indicator behavior in the UI.",
+                "errorStack": "Error: seeded switching test failure at simulateSwitchingScenario (workflow.js:21:5)",
+                "errorHttpCode": 500,
+                "nodeName": "Switching Test Node",
+                "nodeType": "code",
+                "workflowName": "news-scrape-workflow",
+                "workflowId": "wf-error-test-011",
+                "json": {
+                    "phase": "test",
+                    "seedType": "switching"
+                }
+            },
+            {
+                "traceId": "e4e4f6dd2df74f34b7746e72e5f67012",
+                "executionId": "exec-seed-002",
+                "errorMessage": "Synthetic payload parse failure",
+                "errorDescription": "Intentional seeded payload parsing failure used for modal stack/json viewer tests.",
+                "errorStack": "SyntaxError: Unexpected end of JSON input at parsePayload (workflow.js:57:13)",
+                "errorHttpCode": 500,
+                "nodeName": "Parse Payload",
+                "nodeType": "code",
+                "workflowName": "news-scrape-workflow",
+                "workflowId": "wf-error-test-012",
+                "json": {
+                    "phase": "parse",
+                    "seedType": "switching"
+                }
+            },
+            {
+                "traceId": "e4e4f6dd2df74f34b7746e72e5f67013",
+                "executionId": "exec-seed-003",
+                "errorMessage": "Synthetic downstream timeout",
+                "errorDescription": "Intentional seeded downstream timeout used for profile-specific error count verification.",
+                "errorStack": "TimeoutError: downstream request exceeded 10s timeout at dispatchResult (workflow.js:142:7)",
+                "errorHttpCode": 504,
+                "nodeName": "Dispatch Result",
+                "nodeType": "httpRequest",
+                "workflowName": "news-scrape-workflow",
+                "workflowId": "wf-error-test-013",
+                "json": {
+                    "phase": "dispatch",
+                    "seedType": "switching"
+                }
+            }
+        ]
+    }
+]
