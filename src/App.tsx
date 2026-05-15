@@ -1,8 +1,116 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { motion } from "framer-motion";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
+import {
+  ApiRequestError,
+  createProfile,
+  deleteProfile as deleteProfileRequest,
+  type ApiEnvironment,
+  generateActionTraceId,
+  setApiEnvironment,
+  listNews,
+  listProfiles,
+  listSources,
+  createSource,
+  updateSource,
+  deleteSource as deleteSourceRequest,
+  updateProfile,
+  updateNewsFavorite,
+  listNotificationChannels,
+  createNotificationChannel,
+  updateNotificationChannel,
+  triggerScrapeWorkflow,
+  listErrors,
+  deleteNotificationChannel as deleteNotificationChannelRequest,
+} from "./api/profiles";
+import {
+  dispatchChatbotMessage,
+  listChatHistoryMessages,
+  listChatQuickReplies,
+  type ChatHistoryRoleFilter,
+  type ChatHistoryTimePeriod,
+  setApiEnvironment as setChatbotApiEnvironment,
+} from "./api/chatbot";
+import type { ChatHistoryMessage, ChatQuickReply } from "./chatbot";
+import { EnglishValidatedForm } from "./components/EnglishValidatedForm";
+import {
+  createEmptyRssFeed,
+  createEmptyUrl,
+  createEmptyEmailChannel,
+  createEmptySlackChannel,
+  type ProfileTag,
+  type ProfileInput,
+  type ProfileUrl,
+  type RssFeed,
+  type SavedProfile,
+  type Source,
+  type SourceInput,
+  type SavedNewsItem,
+  type SavedErrorItem,
+  type NotificationChannel,
+  type NotificationChannelInput,
+  type EmailChannel,
+  type SlackChannel,
+} from "./profiles";
+import aiNewsLogo from "./resources/logo.png";
+import "./App.css";
+
 type NotificationChannelMultiSelectProps = {
   channels: NotificationChannel[];
   selectedIds: number[];
   onChange: (ids: number[]) => void;
 };
+
+const CHATBOT_VOICE_LANGUAGE_OPTIONS = [
+  { value: "en-US", label: "English" },
+  { value: "de-DE", label: "German" },
+] as const;
+
+const CHAT_HISTORY_TIME_PERIOD_OPTIONS: {
+  value: ChatHistoryTimePeriod;
+  label: string;
+}[] = [
+  { value: "last_hour", label: "Last Hour" },
+  { value: "last_day", label: "Last Day" },
+  { value: "last_week", label: "Last Week" },
+  { value: "last_month", label: "Last Month" },
+  { value: "all", label: "All" },
+];
+
+const CHAT_HISTORY_ROLE_OPTIONS: {
+  value: ChatHistoryRoleFilter;
+  label: string;
+}[] = [
+  { value: "all", label: "All" },
+  { value: "user", label: "User" },
+  { value: "assistant", label: "Assistant" },
+];
+
+type ChatbotVoiceLanguage =
+  (typeof CHATBOT_VOICE_LANGUAGE_OPTIONS)[number]["value"];
+
+function resolveChatbotVoiceLanguage(
+  rawLanguage: string | null | undefined,
+): ChatbotVoiceLanguage {
+  const normalizedLanguage =
+    typeof rawLanguage === "string"
+      ? rawLanguage.trim().toLocaleLowerCase()
+      : "";
+
+  if (normalizedLanguage.startsWith("de")) {
+    return "de-DE";
+  }
+
+  return "en-US";
+}
 
 function NotificationChannelMultiSelect({
   channels,
@@ -51,6 +159,7 @@ function NotificationChannelMultiSelect({
         setQuery("");
       }
     }
+
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, []);
@@ -159,7 +268,16 @@ function NotificationChannelMultiSelect({
             onKeyDown={handleInputKeyDown}
           />
           <span className="notification-channel-chevron" aria-hidden="true">
-            ▾
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path
+                d="M9 6L15 12L9 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </span>
         </div>
 
@@ -227,58 +345,12 @@ function NotificationChannelMultiSelect({
   );
 }
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import {
-  Link,
-  Navigate,
-  Route,
-  Routes,
-  useNavigate,
-  useLocation,
-} from "react-router-dom";
-import {
-  ApiRequestError,
-  createProfile,
-  deleteProfile as deleteProfileRequest,
-  type ApiEnvironment,
-  generateActionTraceId,
-  setApiEnvironment,
-  listNews,
-  listProfiles,
-  updateProfile,
-  updateNewsFavorite,
-  listNotificationChannels,
-  createNotificationChannel,
-  updateNotificationChannel,
-  triggerScrapeWorkflow,
-  listErrors,
-  deleteNotificationChannel as deleteNotificationChannelRequest,
-} from "./api/profiles";
-import { EnglishValidatedForm } from "./components/EnglishValidatedForm";
-import {
-  createEmptyRssFeed,
-  createEmptyUrl,
-  createEmptyEmailChannel,
-  createEmptySlackChannel,
-  type ProfileTag,
-  type ProfileInput,
-  type ProfileUrl,
-  type RssFeed,
-  type SavedProfile,
-  type SavedNewsItem,
-  type SavedErrorItem,
-  type NotificationChannel,
-  type NotificationChannelInput,
-  type EmailChannel,
-  type SlackChannel,
-} from "./profiles";
-import aiNewsLogo from "./resources/logo.png";
-import "./App.css";
-
-type EditorTab = "urls" | "rss" | "notification" | "tags" | "roles";
+type EditorTab = "source" | "notification" | "tags" | "roles";
+type SourceEditorTab = "urls" | "rss";
 
 const APP_ENVIRONMENT_STORAGE_KEY = "news-scrapper.environment";
+const SESSION_ENVIRONMENT_STORAGE_KEY =
+  "news-scrapper.session.environment-selected";
 
 function parseStoredAppEnvironment(
   value: string | null,
@@ -300,16 +372,30 @@ function getInitialAppEnvironment(): ApiEnvironment | null {
   }
 }
 
+function isSessionEnvironmentSelected(): boolean {
+  try {
+    return sessionStorage.getItem(SESSION_ENVIRONMENT_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 type ProfileDraft = {
   name: string;
   description: string;
-  useCustomSources: boolean;
+  systemPrompt: string;
+  sourceId: number | null;
   tags: ProfileTag[];
   roles: ProfileTag[];
-  urls: ProfileUrl[];
-  rssFeeds: RssFeed[];
   notificationChannelIds: number[];
   notificationProfileId?: number | null;
+};
+
+type SourceDraft = {
+  name: string;
+  description: string;
+  urls: ProfileUrl[];
+  rssFeeds: RssFeed[];
 };
 
 type NotificationChannelDraft = {
@@ -451,8 +537,19 @@ type ProfileFormProps = {
   isSaving: boolean;
   formError: string;
   headingId?: string;
+  sources: Source[];
   notificationChannels?: NotificationChannel[];
   onSubmit: (input: ProfileInput) => Promise<void>;
+  onCancel: () => void;
+};
+
+type SourceFormProps = {
+  mode: "create" | "edit";
+  initialDraft: SourceDraft;
+  isSaving: boolean;
+  formError: string;
+  headingId?: string;
+  onSubmit: (input: SourceInput) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -470,13 +567,53 @@ function createDefaultProfileDraft(): ProfileDraft {
   return {
     name: "",
     description: "",
-    useCustomSources: false,
+    systemPrompt: "",
+    sourceId: null,
     tags: [],
     roles: [],
-    urls: [createEmptyUrl(1)],
-    rssFeeds: [createEmptyRssFeed(1)],
     notificationChannelIds: [],
     notificationProfileId: null,
+  };
+}
+
+function createDefaultSourceDraft(): SourceDraft {
+  return {
+    name: "",
+    description: "",
+    urls: [createEmptyUrl(1)],
+    rssFeeds: [createEmptyRssFeed(1)],
+  };
+}
+
+function mapSourceToDraft(source: Source): SourceDraft {
+  return {
+    name: source.name,
+    description: source.description,
+    urls: source.urls.map((entry, index) => ({
+      id: index + 1,
+      url: entry.url,
+      description: entry.description,
+    })),
+    rssFeeds: source.rssFeeds.map((entry, index) => ({
+      id: index + 1,
+      feedUrl: entry.feedUrl,
+      description: entry.description,
+    })),
+  };
+}
+
+function toSourceInput(draft: SourceDraft): SourceInput {
+  return {
+    name: draft.name.trim(),
+    description: draft.description.trim(),
+    urls: draft.urls.map((entry) => ({
+      url: entry.url.trim(),
+      description: entry.description.trim(),
+    })),
+    rssFeeds: draft.rssFeeds.map((entry) => ({
+      feedUrl: entry.feedUrl.trim(),
+      description: entry.description?.trim(),
+    })),
   };
 }
 
@@ -484,7 +621,8 @@ function mapProfileToDraft(profile: SavedProfile): ProfileDraft {
   return {
     name: profile.name,
     description: profile.description,
-    useCustomSources: profile.useCustomSources,
+    systemPrompt: profile.systemPrompt ?? "",
+    sourceId: profile.sourceId,
     tags: profile.tags.map((entry, index) => ({
       id: index + 1,
       name: entry,
@@ -492,19 +630,6 @@ function mapProfileToDraft(profile: SavedProfile): ProfileDraft {
     roles: (profile.roles ?? []).map((entry, index) => ({
       id: index + 1,
       name: entry,
-    })),
-    urls: profile.urls.map((entry, index) => ({
-      id: index + 1,
-      url: entry.url,
-      description: entry.description,
-    })),
-    rssFeeds: profile.rssFeeds.map((entry, index) => ({
-      id: index + 1,
-      feedUrl: entry.feedUrl,
-      title: entry.title,
-      refreshCadence: entry.refreshCadence,
-      format: entry.format,
-      category: entry.category,
     })),
     notificationChannelIds:
       profile.notificationChannelIds ??
@@ -521,28 +646,14 @@ function toProfileInput(draft: ProfileDraft): ProfileInput {
   return {
     name: draft.name.trim(),
     description: draft.description.trim(),
-    useCustomSources: draft.useCustomSources,
+    systemPrompt: draft.systemPrompt.trim(),
+    sourceId: draft.sourceId ?? 0,
     tags: draft.tags
       .map((entry) => normalizeTagName(entry.name))
       .filter(Boolean),
     roles: draft.roles
       .map((entry) => normalizeTagName(entry.name))
       .filter(Boolean),
-    urls: draft.useCustomSources
-      ? draft.urls.map((entry) => ({
-          url: entry.url.trim(),
-          description: entry.description.trim(),
-        }))
-      : [],
-    rssFeeds: draft.useCustomSources
-      ? draft.rssFeeds.map((entry) => ({
-          feedUrl: entry.feedUrl.trim(),
-          title: entry.title.trim(),
-          refreshCadence: entry.refreshCadence.trim(),
-          format: entry.format.trim(),
-          category: entry.category.trim(),
-        }))
-      : [],
     notificationChannelIds: draft.notificationChannelIds,
     // Keep legacy field until backend persistence is upgraded for multi-select.
     notificationProfileId: draft.notificationChannelIds[0] ?? null,
@@ -554,19 +665,8 @@ function validateProfileDraft(input: ProfileInput) {
     return "Profile name is required.";
   }
 
-  if (input.useCustomSources) {
-    if (input.urls.length === 0 || input.urls.some((entry) => !entry.url)) {
-      return "Each URL entry needs a source URL.";
-    }
-
-    if (
-      input.rssFeeds.length === 0 ||
-      input.rssFeeds.some(
-        (entry) => !entry.feedUrl || !entry.refreshCadence || !entry.format,
-      )
-    ) {
-      return "Each RSS entry requires feed URL, refresh cadence, and format.";
-    }
+  if (!Number.isInteger(input.sourceId) || input.sourceId <= 0) {
+    return "Please select a source.";
   }
 
   if (hasDuplicateTagNames(input.tags)) {
@@ -580,12 +680,121 @@ function validateProfileDraft(input: ProfileInput) {
   return "";
 }
 
-function withTraceId(message: string, error: unknown) {
-  if (error instanceof ApiRequestError && error.traceId) {
-    return `${message} Trace ID: ${error.traceId}`;
+function validateSourceDraft(input: SourceInput) {
+  if (!input.name) {
+    return "Source name is required.";
   }
 
-  return message;
+  if (input.urls.length === 0 || input.urls.some((entry) => !entry.url)) {
+    return "Each URL entry needs a source URL.";
+  }
+
+  if (
+    input.rssFeeds.length === 0 ||
+    input.rssFeeds.some((entry) => !entry.feedUrl)
+  ) {
+    return "Each RSS entry requires a feed URL.";
+  }
+
+  return "";
+}
+
+function resolveTraceId(error: unknown, fallbackTraceId?: string) {
+  if (error instanceof ApiRequestError && error.traceId) {
+    return error.traceId;
+  }
+
+  if (fallbackTraceId) {
+    return fallbackTraceId;
+  }
+
+  return generateActionTraceId();
+}
+
+function withTraceId(
+  message: string,
+  error: unknown,
+  fallbackTraceId?: string,
+) {
+  const traceId = resolveTraceId(error, fallbackTraceId);
+  return `${message} Trace ID: ${traceId}`;
+}
+
+function withChatbotFailureDetails(
+  message: string,
+  error: unknown,
+  fallbackTraceId?: string,
+) {
+  if (error instanceof ApiRequestError) {
+    const traceId = resolveTraceId(error, fallbackTraceId);
+    return `${message} Reason: ${error.message}. Trace ID: ${traceId}`;
+  }
+
+  return withTraceId(message, error, fallbackTraceId);
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function findDispatchResponseText(value: unknown): string | null {
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+
+  // Check for API error response (when backend returns error status)
+  if (typeof value.error === "string") {
+    const msg = value.error.trim();
+    if (msg.length > 0) {
+      return msg;
+    }
+  }
+
+  // Check for n8n error response format
+  if (value.error === true && typeof value.message === "string") {
+    const msg = value.message.trim();
+    if (msg.length > 0) {
+      return msg;
+    }
+  }
+
+  const queue: unknown[] = [value];
+  const preferredKeys = [
+    "agentResponse",
+    "response",
+    "answer",
+    "output",
+    "text",
+    "message",
+  ];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+
+    if (Array.isArray(current)) {
+      for (const entry of current) {
+        queue.push(entry);
+      }
+      continue;
+    }
+
+    if (!isObjectRecord(current)) {
+      continue;
+    }
+
+    for (const key of preferredKeys) {
+      const preferred = current[key];
+      if (typeof preferred === "string" && preferred.trim().length > 0) {
+        return preferred.trim();
+      }
+    }
+
+    for (const entry of Object.values(current)) {
+      queue.push(entry);
+    }
+  }
+
+  return null;
 }
 
 const NEWS_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -694,49 +903,24 @@ function ProfileForm({
   isSaving,
   formError,
   headingId,
+  sources,
   notificationChannels,
   onSubmit,
   onCancel,
 }: ProfileFormProps) {
   const [draft, setDraft] = useState<ProfileDraft>(initialDraft);
-  const [activeTab, setActiveTab] = useState<EditorTab>("urls");
+  const [activeTab, setActiveTab] = useState<EditorTab>("source");
   const [tagInput, setTagInput] = useState("");
   const [roleInput, setRoleInput] = useState("");
   const [localError, setLocalError] = useState("");
 
   useEffect(() => {
     setDraft(initialDraft);
-    setActiveTab("urls");
+    setActiveTab("source");
     setTagInput("");
     setRoleInput("");
     setLocalError("");
   }, [initialDraft]);
-
-  function updateUrlField(
-    urlId: number,
-    field: keyof Omit<ProfileUrl, "id">,
-    value: string,
-  ) {
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      urls: currentDraft.urls.map((entry) =>
-        entry.id === urlId ? { ...entry, [field]: value } : entry,
-      ),
-    }));
-  }
-
-  function updateRssField(
-    rssId: number,
-    field: keyof Omit<RssFeed, "id">,
-    value: string,
-  ) {
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      rssFeeds: currentDraft.rssFeeds.map((entry) =>
-        entry.id === rssId ? { ...entry, [field]: value } : entry,
-      ),
-    }));
-  }
 
   function addTag(rawValue: string) {
     const normalizedTag = normalizeTagName(rawValue);
@@ -818,44 +1002,6 @@ function ProfileForm({
     }
   }
 
-  function setUseCustomSources(enabled: boolean) {
-    if (!enabled && draft.useCustomSources) {
-      const hasConfiguredUrls = draft.urls.some(
-        (entry) => entry.url.trim() || entry.description.trim(),
-      );
-      const hasConfiguredRssFeeds = draft.rssFeeds.some(
-        (entry) => entry.feedUrl.trim() || entry.title.trim(),
-      );
-
-      if (hasConfiguredUrls || hasConfiguredRssFeeds) {
-        const confirmed = window.confirm(
-          "Disabling Custom mode will remove all current URL and RSS entries. Do you want to continue?",
-        );
-
-        if (!confirmed) {
-          return;
-        }
-      }
-    }
-
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      useCustomSources: enabled,
-      urls:
-        enabled && currentDraft.urls.length === 0
-          ? [createEmptyUrl(1)]
-          : !enabled
-            ? []
-            : currentDraft.urls,
-      rssFeeds:
-        enabled && currentDraft.rssFeeds.length === 0
-          ? [createEmptyRssFeed(1)]
-          : !enabled
-            ? []
-            : currentDraft.rssFeeds,
-    }));
-  }
-
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -884,7 +1030,7 @@ function ProfileForm({
         </h2>
         <p>
           {mode === "create"
-            ? "Add profile metadata, tags, roles, URL sources, and one or more RSS feeds."
+            ? "Select source and notification channels, then define profile roles and tags."
             : "Update the selected profile settings and save changes."}
         </p>
       </div>
@@ -920,6 +1066,21 @@ function ProfileForm({
         />
       </label>
 
+      <label className="field">
+        <span>System Prompt</span>
+        <textarea
+          value={draft.systemPrompt}
+          onChange={(event) =>
+            setDraft((currentDraft) => ({
+              ...currentDraft,
+              systemPrompt: event.target.value,
+            }))
+          }
+          placeholder="Optional system prompt for this profile context."
+          rows={4}
+        />
+      </label>
+
       <div
         className="profile-tabs"
         role="tablist"
@@ -928,20 +1089,11 @@ function ProfileForm({
         <button
           type="button"
           role="tab"
-          aria-selected={activeTab === "urls"}
-          className={`tab-button ${activeTab === "urls" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("urls")}
+          aria-selected={activeTab === "source"}
+          className={`tab-button ${activeTab === "source" ? "is-active" : ""}`}
+          onClick={() => setActiveTab("source")}
         >
-          URLS
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "rss"}
-          className={`tab-button ${activeTab === "rss" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("rss")}
-        >
-          RSS
+          SOURCE
         </button>
         <button
           type="button"
@@ -972,268 +1124,51 @@ function ProfileForm({
         </button>
       </div>
 
-      {activeTab === "urls" ? (
+      {activeTab === "source" ? (
         <section
           className="profile-section"
-          aria-labelledby="profile-urls-title"
+          aria-labelledby="profile-source-title"
         >
           <div className="section-heading-row">
             <div>
               <p className="section-kicker">Section</p>
-              <h3 id="profile-urls-title">URLS</h3>
+              <h3 id="profile-source-title">SOURCE</h3>
             </div>
-            <label className="custom-toggle">
-              <input
-                type="checkbox"
-                checked={draft.useCustomSources}
-                onChange={(event) =>
-                  setUseCustomSources(event.currentTarget.checked)
-                }
-              />
-              <span>Custom</span>
-            </label>
-            {draft.useCustomSources ? (
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() =>
-                  setDraft((currentDraft) => ({
-                    ...currentDraft,
-                    urls: [
-                      ...currentDraft.urls,
-                      createEmptyUrl(getNextId(currentDraft.urls)),
-                    ],
-                  }))
-                }
-              >
-                Add URL
-              </button>
-            ) : null}
           </div>
 
           <p className="section-caption">
-            {draft.useCustomSources
-              ? "Use user defined News Sources"
-              : "Use AI selected News Sources"}
+            Select a source that contains URLs and RSS feeds to scrape.
           </p>
 
-          {draft.useCustomSources ? (
-            <div className="stacked-fields stacked-fields-scrollable">
-              {draft.urls.map((entry, index) => (
-                <div className="url-card" key={entry.id}>
-                  <div className="url-card-header">
-                    <h4>Source {index + 1}</h4>
-                    {draft.urls.length > 1 ? (
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() =>
-                          setDraft((currentDraft) => ({
-                            ...currentDraft,
-                            urls: currentDraft.urls.filter(
-                              (urlEntry) => urlEntry.id !== entry.id,
-                            ),
-                          }))
-                        }
-                      >
-                        Remove
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <label className="field">
-                    <span>{`Source URL ${index + 1}`}</span>
-                    <input
-                      type="url"
-                      value={entry.url}
-                      onChange={(event) =>
-                        updateUrlField(entry.id, "url", event.target.value)
-                      }
-                      placeholder="https://example.com/feed"
-                      required
-                    />
-                  </label>
-
-                  <label className="field">
-                    <span>{`Source URL description ${index + 1}`}</span>
-                    <input
-                      type="text"
-                      value={entry.description}
-                      onChange={(event) =>
-                        updateUrlField(
-                          entry.id,
-                          "description",
-                          event.target.value,
-                        )
-                      }
-                      placeholder="Optional note about this source"
-                    />
-                  </label>
-                </div>
+          <label className="field">
+            <span>Source</span>
+            <select
+              value={draft.sourceId ?? ""}
+              onChange={(event) => {
+                const nextSourceId = Number(event.target.value);
+                setDraft((currentDraft) => ({
+                  ...currentDraft,
+                  sourceId: Number.isInteger(nextSourceId)
+                    ? nextSourceId
+                    : null,
+                }));
+              }}
+              required
+            >
+              <option value="">Select source</option>
+              {sources.map((source) => (
+                <option key={source.id} value={source.id}>
+                  {source.name}
+                </option>
               ))}
-            </div>
-          ) : (
+            </select>
+          </label>
+
+          {sources.length === 0 ? (
             <p className="section-caption">
-              Enable Custom mode to add URL sources.
+              No sources available. Add one in the Sources tab.
             </p>
-          )}
-        </section>
-      ) : activeTab === "rss" ? (
-        <section
-          className="profile-section"
-          aria-labelledby="profile-rss-title"
-        >
-          <div className="section-heading-row">
-            <div>
-              <p className="section-kicker">Section</p>
-              <h3 id="profile-rss-title">RSS</h3>
-            </div>
-            <label className="custom-toggle">
-              <input
-                type="checkbox"
-                checked={draft.useCustomSources}
-                onChange={(event) =>
-                  setUseCustomSources(event.currentTarget.checked)
-                }
-              />
-              <span>Custom</span>
-            </label>
-            {draft.useCustomSources ? (
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() =>
-                  setDraft((currentDraft) => ({
-                    ...currentDraft,
-                    rssFeeds: [
-                      ...currentDraft.rssFeeds,
-                      createEmptyRssFeed(getNextId(currentDraft.rssFeeds)),
-                    ],
-                  }))
-                }
-              >
-                Add RSS
-              </button>
-            ) : null}
-          </div>
-
-          <p className="section-caption">
-            {draft.useCustomSources
-              ? "Use user defined News Sources"
-              : "Use AI selected News Sources"}
-          </p>
-
-          {draft.useCustomSources ? (
-            <div className="stacked-fields stacked-fields-scrollable">
-              {draft.rssFeeds.map((entry, index) => (
-                <div className="url-card" key={entry.id}>
-                  <div className="url-card-header">
-                    <h4>Feed {index + 1}</h4>
-                    {draft.rssFeeds.length > 1 ? (
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() =>
-                          setDraft((currentDraft) => ({
-                            ...currentDraft,
-                            rssFeeds: currentDraft.rssFeeds.filter(
-                              (rssEntry) => rssEntry.id !== entry.id,
-                            ),
-                          }))
-                        }
-                      >
-                        Remove
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <div className="rss-grid">
-                    <label className="field field-wide">
-                      <span>{`RSS feed URL ${index + 1}`}</span>
-                      <input
-                        type="url"
-                        value={entry.feedUrl}
-                        onChange={(event) =>
-                          updateRssField(
-                            entry.id,
-                            "feedUrl",
-                            event.target.value,
-                          )
-                        }
-                        placeholder="https://example.com/feed.xml"
-                        required
-                      />
-                    </label>
-
-                    <label className="field">
-                      <span>{`RSS title ${index + 1}`}</span>
-                      <input
-                        type="text"
-                        value={entry.title}
-                        onChange={(event) =>
-                          updateRssField(entry.id, "title", event.target.value)
-                        }
-                        placeholder="AI vendor releases"
-                      />
-                    </label>
-
-                    <label className="field">
-                      <span>{`Refresh cadence ${index + 1}`}</span>
-                      <select
-                        value={entry.refreshCadence}
-                        onChange={(event) =>
-                          updateRssField(
-                            entry.id,
-                            "refreshCadence",
-                            event.target.value,
-                          )
-                        }
-                      >
-                        <option>Every 15 minutes</option>
-                        <option>Every 30 minutes</option>
-                        <option>Hourly</option>
-                        <option>Twice daily</option>
-                      </select>
-                    </label>
-
-                    <label className="field">
-                      <span>{`RSS format ${index + 1}`}</span>
-                      <select
-                        value={entry.format}
-                        onChange={(event) =>
-                          updateRssField(entry.id, "format", event.target.value)
-                        }
-                      >
-                        <option>RSS 2.0</option>
-                        <option>Atom</option>
-                        <option>JSON Feed</option>
-                      </select>
-                    </label>
-
-                    <label className="field">
-                      <span>{`Feed category ${index + 1}`}</span>
-                      <input
-                        type="text"
-                        value={entry.category}
-                        onChange={(event) =>
-                          updateRssField(
-                            entry.id,
-                            "category",
-                            event.target.value,
-                          )
-                        }
-                        placeholder="AI research digests"
-                      />
-                    </label>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="section-caption">
-              Enable Custom mode to add RSS feeds.
-            </p>
-          )}
+          ) : null}
         </section>
       ) : activeTab === "roles" ? (
         <section
@@ -1411,6 +1346,324 @@ function ProfileForm({
             : mode === "create"
               ? "Save profile"
               : "Update profile"}
+        </button>
+        <button type="button" className="ghost-button" onClick={onCancel}>
+          {mode === "create" ? "Cancel" : "Cancel edit"}
+        </button>
+      </div>
+    </EnglishValidatedForm>
+  );
+}
+
+function SourceForm({
+  mode,
+  initialDraft,
+  isSaving,
+  formError,
+  headingId,
+  onSubmit,
+  onCancel,
+}: SourceFormProps) {
+  const [draft, setDraft] = useState<SourceDraft>(initialDraft);
+  const [activeTab, setActiveTab] = useState<SourceEditorTab>("urls");
+  const [localError, setLocalError] = useState("");
+
+  useEffect(() => {
+    setDraft(initialDraft);
+    setActiveTab("urls");
+    setLocalError("");
+  }, [initialDraft]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const input = toSourceInput(draft);
+    const validationError = validateSourceDraft(input);
+
+    if (validationError) {
+      setLocalError(validationError);
+      return;
+    }
+
+    setLocalError("");
+    await onSubmit(input);
+  }
+
+  const errorToShow = localError || formError;
+
+  return (
+    <EnglishValidatedForm
+      className="panel profile-form"
+      onSubmit={handleSubmit}
+    >
+      <div className="profile-form-header">
+        <h2 id={headingId}>
+          {mode === "create" ? "Create source" : "Edit source"}
+        </h2>
+        <p>
+          {mode === "create"
+            ? "Define URLs and RSS feeds for scraping."
+            : "Update source URLs and RSS feeds."}
+        </p>
+      </div>
+
+      <label className="field">
+        <span>Source name</span>
+        <input
+          type="text"
+          value={draft.name}
+          onChange={(event) =>
+            setDraft((currentDraft) => ({
+              ...currentDraft,
+              name: event.target.value,
+            }))
+          }
+          placeholder="AI Demo Source"
+          required
+        />
+      </label>
+
+      <label className="field">
+        <span>Source description</span>
+        <textarea
+          value={draft.description}
+          onChange={(event) =>
+            setDraft((currentDraft) => ({
+              ...currentDraft,
+              description: event.target.value,
+            }))
+          }
+          placeholder="Optional context for this source"
+          rows={3}
+        />
+      </label>
+
+      <div className="profile-tabs" role="tablist" aria-label="Source sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "urls"}
+          className={`tab-button ${activeTab === "urls" ? "is-active" : ""}`}
+          onClick={() => setActiveTab("urls")}
+        >
+          URLS
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "rss"}
+          className={`tab-button ${activeTab === "rss" ? "is-active" : ""}`}
+          onClick={() => setActiveTab("rss")}
+        >
+          RSS
+        </button>
+      </div>
+
+      {activeTab === "urls" ? (
+        <section className="profile-section" aria-labelledby="source-urls-title">
+          <div className="section-heading-row">
+            <div>
+              <p className="section-kicker">Section</p>
+              <h3 id="source-urls-title">URLS</h3>
+            </div>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setDraft((currentDraft) => ({
+                  ...currentDraft,
+                  urls: [
+                    ...currentDraft.urls,
+                    createEmptyUrl(getNextId(currentDraft.urls)),
+                  ],
+                }));
+              }}
+            >
+              Add URL
+            </button>
+          </div>
+
+          <div className="stacked-fields stacked-fields-scrollable">
+            {draft.urls.map((entry, index) => (
+              <div className="url-card" key={entry.id}>
+                <div className="url-card-header">
+                  <h4>
+                    {entry.description.trim() ||
+                      entry.url.trim() ||
+                      `URL ${index + 1}`}
+                  </h4>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() =>
+                      setDraft((currentDraft) => ({
+                        ...currentDraft,
+                        urls: currentDraft.urls.filter(
+                          (urlEntry) => urlEntry.id !== entry.id,
+                        ),
+                      }))
+                    }
+                    disabled={draft.urls.length === 1}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                <label className="field">
+                  <span>{`Source URL ${index + 1}`}</span>
+                  <input
+                    type="url"
+                    value={entry.url}
+                    onChange={(event) =>
+                      setDraft((currentDraft) => ({
+                        ...currentDraft,
+                        urls: currentDraft.urls.map((urlEntry) =>
+                          urlEntry.id === entry.id
+                            ? { ...urlEntry, url: event.target.value }
+                            : urlEntry,
+                        ),
+                      }))
+                    }
+                    placeholder="https://example.com/feed"
+                    required
+                  />
+                </label>
+
+                <label className="field">
+                  <span>{`URL description ${index + 1}`}</span>
+                  <input
+                    type="text"
+                    value={entry.description}
+                    onChange={(event) =>
+                      setDraft((currentDraft) => ({
+                        ...currentDraft,
+                        urls: currentDraft.urls.map((urlEntry) =>
+                          urlEntry.id === entry.id
+                            ? { ...urlEntry, description: event.target.value }
+                            : urlEntry,
+                        ),
+                      }))
+                    }
+                    placeholder="Optional note"
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="profile-section" aria-labelledby="source-rss-title">
+          <div className="section-heading-row">
+            <div>
+              <p className="section-kicker">Section</p>
+              <h3 id="source-rss-title">RSS</h3>
+            </div>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setDraft((currentDraft) => ({
+                  ...currentDraft,
+                  rssFeeds: [
+                    ...currentDraft.rssFeeds,
+                    createEmptyRssFeed(getNextId(currentDraft.rssFeeds)),
+                  ],
+                }));
+              }}
+            >
+              Add RSS
+            </button>
+          </div>
+
+          <div className="stacked-fields stacked-fields-scrollable">
+            {draft.rssFeeds.map((entry, index) => (
+              <div className="url-card" key={entry.id}>
+                <div className="url-card-header">
+                  <h4>
+                    {entry.description?.trim() ||
+                      entry.feedUrl.trim() ||
+                      `RSS ${index + 1}`}
+                  </h4>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() =>
+                      setDraft((currentDraft) => ({
+                        ...currentDraft,
+                        rssFeeds: currentDraft.rssFeeds.filter(
+                          (rssEntry) => rssEntry.id !== entry.id,
+                        ),
+                      }))
+                    }
+                    disabled={draft.rssFeeds.length === 1}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                <div className="rss-grid">
+                  <label className="field field-wide">
+                    <span>{`RSS feed URL ${index + 1}`}</span>
+                    <input
+                      type="url"
+                      value={entry.feedUrl}
+                      onChange={(event) =>
+                        setDraft((currentDraft) => ({
+                          ...currentDraft,
+                          rssFeeds: currentDraft.rssFeeds.map((rssEntry) =>
+                            rssEntry.id === entry.id
+                              ? { ...rssEntry, feedUrl: event.target.value }
+                              : rssEntry,
+                          ),
+                        }))
+                      }
+                      placeholder="https://example.com/feed.xml"
+                      required
+                    />
+                  </label>
+
+                  <label className="field field-wide">
+                    <span>{`Description ${index + 1} (optional)`}</span>
+                    <input
+                      type="text"
+                      value={entry.description ?? ""}
+                      onChange={(event) =>
+                        setDraft((currentDraft) => ({
+                          ...currentDraft,
+                          rssFeeds: currentDraft.rssFeeds.map((rssEntry) =>
+                            rssEntry.id === entry.id
+                              ? {
+                                  ...rssEntry,
+                                  description: event.target.value,
+                                }
+                              : rssEntry,
+                          ),
+                        }))
+                      }
+                      placeholder="Brief description of this feed"
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {errorToShow ? (
+        <p className="form-error" role="alert">
+          {errorToShow}
+        </p>
+      ) : null}
+
+      <div className="form-actions">
+        <button type="submit" className="primary-button" disabled={isSaving}>
+          {isSaving
+            ? mode === "create"
+              ? "Saving..."
+              : "Updating..."
+            : mode === "create"
+              ? "Save source"
+              : "Update source"}
         </button>
         <button type="button" className="ghost-button" onClick={onCancel}>
           {mode === "create" ? "Cancel" : "Cancel edit"}
@@ -1702,6 +1955,7 @@ type ModalDialogProps = {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  className?: string;
 };
 
 type StartupEnvironmentDialogProps = {
@@ -1860,7 +2114,16 @@ function ProfileCombobox({
           onKeyDown={handleInputKeyDown}
         />
         <span className="profile-combobox-chevron" aria-hidden="true">
-          ▾
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path
+              d="M9 6L15 12L9 18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </span>
       </div>
 
@@ -1918,7 +2181,12 @@ function ProfileCombobox({
 }
 // ---------------------------------------------------------------------------
 
-function ModalDialog({ title, children, onClose }: ModalDialogProps) {
+function ModalDialog({
+  title,
+  children,
+  onClose,
+  className,
+}: ModalDialogProps) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -1939,7 +2207,7 @@ function ModalDialog({ title, children, onClose }: ModalDialogProps) {
   return createPortal(
     <div className="dialog-overlay">
       <div
-        className="dialog-card"
+        className={["dialog-card", className].filter(Boolean).join(" ")}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -1963,6 +2231,25 @@ function ModalDialog({ title, children, onClose }: ModalDialogProps) {
   );
 }
 
+function StartupEnvironmentScene() {
+  return (
+    <motion.div
+      className="startup-environment-scene"
+      initial={{ opacity: 0, y: 16, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.55, ease: "easeOut" }}
+      aria-hidden="true"
+    >
+      <iframe
+        title="AI News Scraper startup hero"
+        className="startup-hero-frame"
+        src="/startup-hero.html"
+      />
+      <div className="startup-environment-glow" />
+    </motion.div>
+  );
+}
+
 function StartupEnvironmentDialog({
   selectedEnvironment,
   onChangeEnvironment,
@@ -1970,12 +2257,16 @@ function StartupEnvironmentDialog({
 }: StartupEnvironmentDialogProps) {
   return createPortal(
     <div className="dialog-overlay startup-environment-overlay">
-      <div
+      <motion.div
         className={`dialog-card startup-environment-card startup-environment-card--${selectedEnvironment ?? "none"}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="startup-environment-title"
+        initial={{ opacity: 0, y: 20, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.45, ease: "easeOut" }}
       >
+        <StartupEnvironmentScene />
         <div className="dialog-header">
           <h2 id="startup-environment-title" className="dialog-title">
             Select Environment
@@ -2021,7 +2312,7 @@ function StartupEnvironmentDialog({
             Connect
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>,
     document.body,
   );
@@ -2029,26 +2320,30 @@ function StartupEnvironmentDialog({
 
 type ProfilesPageProps = {
   profiles: SavedProfile[];
+  sources: Source[];
   isLoadingProfiles: boolean;
   profilesError: string;
   notificationChannels: NotificationChannel[];
   onProfilesChanged: (profiles: SavedProfile[]) => void;
+  onSourcesChanged: (sources: Source[]) => void;
   onReloadProfiles: () => Promise<void>;
   onNotificationChannelsChanged: (profiles: NotificationChannel[]) => void;
 };
 
 function ProfilesPage({
   profiles,
+  sources,
   isLoadingProfiles,
   profilesError,
   notificationChannels,
   onProfilesChanged,
+  onSourcesChanged,
   onReloadProfiles,
   onNotificationChannelsChanged,
 }: ProfilesPageProps) {
-  const [activeTab, setActiveTab] = useState<"profiles" | "notifications">(
-    "profiles",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "sources" | "notifications" | "profiles"
+  >("sources");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<ProfileDraft>(
     createDefaultProfileDraft(),
@@ -2062,6 +2357,12 @@ function ProfilesPage({
   const [deletingProfileId, setDeletingProfileId] = useState<number | null>(
     null,
   );
+  const [isCreateSourceDialogOpen, setIsCreateSourceDialogOpen] =
+    useState(false);
+  const [sourceFormError, setSourceFormError] = useState("");
+  const [isSavingSource, setIsSavingSource] = useState(false);
+  const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
+  const [deletingSourceId, setDeletingSourceId] = useState<number | null>(null);
   const [isCreateNotificationDialogOpen, setIsCreateNotificationDialogOpen] =
     useState(false);
   const [notificationFormError, setNotificationFormError] = useState("");
@@ -2073,6 +2374,12 @@ function ProfilesPage({
 
   function startAddDialog() {
     setCreateDraft(createDefaultProfileDraft());
+    if (sources.length > 0) {
+      setCreateDraft((currentDraft) => ({
+        ...currentDraft,
+        sourceId: sources[0].id,
+      }));
+    }
     setFormError("");
     setIsCreateDialogOpen(true);
   }
@@ -2103,6 +2410,7 @@ function ProfilesPage({
         withTraceId(
           "Could not save the profile. Check the backend server and database connection.",
           error,
+          actionTraceId,
         ),
       );
     } finally {
@@ -2136,6 +2444,7 @@ function ProfilesPage({
         withTraceId(
           "Could not update the profile. Check the backend server and database connection.",
           error,
+          actionTraceId,
         ),
       );
     } finally {
@@ -2159,10 +2468,100 @@ function ProfilesPage({
         withTraceId(
           "Could not delete the selected profile. Check the backend server and database connection.",
           error,
+          actionTraceId,
         ),
       );
     } finally {
       setDeletingProfileId(null);
+    }
+  }
+
+  const [createSourceDraft, setCreateSourceDraft] = useState<SourceDraft>(
+    createDefaultSourceDraft(),
+  );
+  const [editSourceDraft, setEditSourceDraft] = useState<SourceDraft>(
+    createDefaultSourceDraft(),
+  );
+
+  function startCreateSource() {
+    setCreateSourceDraft(createDefaultSourceDraft());
+    setSourceFormError("");
+    setIsCreateSourceDialogOpen(true);
+  }
+
+  function startEditSource(source: Source) {
+    setEditingSourceId(source.id);
+    setEditSourceDraft(mapSourceToDraft(source));
+    setSourceFormError("");
+  }
+
+  function cancelEditSource() {
+    setEditingSourceId(null);
+    setSourceFormError("");
+  }
+
+  async function handleCreateSource(input: SourceInput) {
+    setSourceFormError("");
+    setIsSavingSource(true);
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      const createdSource = await createSource(input, actionTraceId);
+      onSourcesChanged([createdSource, ...sources]);
+      setIsCreateSourceDialogOpen(false);
+      setCreateSourceDraft(createDefaultSourceDraft());
+    } catch (error) {
+      setSourceFormError(
+        withTraceId("Could not create source.", error, actionTraceId),
+      );
+    } finally {
+      setIsSavingSource(false);
+    }
+  }
+
+  async function handleUpdateSource(input: SourceInput) {
+    if (editingSourceId === null) {
+      return;
+    }
+
+    setSourceFormError("");
+    setIsSavingSource(true);
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      const updatedSource = await updateSource(
+        editingSourceId,
+        input,
+        actionTraceId,
+      );
+      onSourcesChanged(
+        sources.map((source) =>
+          source.id === editingSourceId ? updatedSource : source,
+        ),
+      );
+      cancelEditSource();
+    } catch (error) {
+      setSourceFormError(
+        withTraceId("Could not update source.", error, actionTraceId),
+      );
+    } finally {
+      setIsSavingSource(false);
+    }
+  }
+
+  async function handleDeleteSource(sourceId: number) {
+    setDeletingSourceId(sourceId);
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      await deleteSourceRequest(sourceId, actionTraceId);
+      onSourcesChanged(sources.filter((source) => source.id !== sourceId));
+    } catch (error) {
+      setSourceFormError(
+        withTraceId("Could not delete source.", error, actionTraceId),
+      );
+    } finally {
+      setDeletingSourceId(null);
     }
   }
 
@@ -2208,6 +2607,7 @@ function ProfilesPage({
         withTraceId(
           "Could not create the notification channel. Check the backend server and database connection.",
           error,
+          actionTraceId,
         ),
       );
     } finally {
@@ -2245,6 +2645,7 @@ function ProfilesPage({
         withTraceId(
           "Could not update the notification channel. Check the backend server and database connection.",
           error,
+          actionTraceId,
         ),
       );
     } finally {
@@ -2256,19 +2657,18 @@ function ProfilesPage({
     <section className="page profiles-page" aria-labelledby="profiles-title">
       <h1 id="profiles-title">Profiles</h1>
       <p className="page-intro">
-        Manage profiles with URL, RSS, roles, and tag tabs. Add opens a dialog,
-        while edit and delete are available directly from the list.
+        Manage sources, notification channels, and profiles in separate tabs.
       </p>
 
       <div className="tabs-container" role="tablist">
         <button
           type="button"
           role="tab"
-          aria-selected={activeTab === "profiles"}
-          className={`tab-button ${activeTab === "profiles" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("profiles")}
+          aria-selected={activeTab === "sources"}
+          className={`tab-button ${activeTab === "sources" ? "is-active" : ""}`}
+          onClick={() => setActiveTab("sources")}
         >
-          Profiles
+          Sources
         </button>
         <button
           type="button"
@@ -2279,7 +2679,80 @@ function ProfilesPage({
         >
           Notification Channels
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "profiles"}
+          className={`tab-button ${activeTab === "profiles" ? "is-active" : ""}`}
+          onClick={() => setActiveTab("profiles")}
+        >
+          Profiles
+        </button>
       </div>
+
+      {activeTab === "sources" ? (
+        <section
+          className="panel profiles-summary"
+          aria-labelledby="sources-title"
+        >
+          <div className="summary-header">
+            <div>
+              <h2 id="sources-title" className="title-with-count">
+                <span>Sources</span>
+                <span
+                  className="title-count-badge"
+                  aria-label={`${sources.length} sources`}
+                >
+                  {sources.length}
+                </span>
+              </h2>
+            </div>
+            <div className="saved-profile-actions">
+              <button
+                type="button"
+                className="primary-button compact-button"
+                onClick={startCreateSource}
+              >
+                Add source
+              </button>
+            </div>
+          </div>
+
+          {sources.length === 0 ? (
+            <article className="panel empty-state">
+              <h3>No sources yet</h3>
+              <p>Create a source with URL and RSS definitions first.</p>
+            </article>
+          ) : (
+            <ul className="profile-name-list" aria-label="Source entries">
+              {sources.map((source) => (
+                <li key={source.id}>
+                  <span>{source.name}</span>
+                  <div className="saved-profile-actions">
+                    <button
+                      type="button"
+                      className="ghost-button compact-button"
+                      onClick={() => startEditSource(source)}
+                    >
+                      Edit source
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button compact-button compact-button-danger"
+                      onClick={() => void handleDeleteSource(source.id)}
+                      disabled={deletingSourceId === source.id}
+                    >
+                      {deletingSourceId === source.id
+                        ? "Deleting..."
+                        : "Delete source"}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       {activeTab === "profiles" ? (
         <section
@@ -2436,7 +2909,11 @@ function ProfilesPage({
                           );
                         } catch (error) {
                           setNotificationFormError(
-                            "Could not delete notification channel.",
+                            withTraceId(
+                              "Could not delete notification channel.",
+                              error,
+                              actionTraceId,
+                            ),
                           );
                         } finally {
                           setDeletingNotificationProfileId(null);
@@ -2457,13 +2934,18 @@ function ProfilesPage({
       ) : null}
 
       {editingProfileId !== null ? (
-        <ModalDialog title="Edit profile dialog" onClose={cancelEditingProfile}>
+        <ModalDialog
+          title="Edit profile dialog"
+          onClose={cancelEditingProfile}
+          className="profile-dialog-card"
+        >
           <ProfileForm
             mode="edit"
             initialDraft={editDraft}
             isSaving={isSavingProfile}
             formError={formError}
             headingId="edit-profile-title"
+            sources={sources}
             notificationChannels={notificationChannels}
             onSubmit={handleUpdateProfile}
             onCancel={cancelEditingProfile}
@@ -2478,6 +2960,7 @@ function ProfilesPage({
             setIsCreateDialogOpen(false);
             setFormError("");
           }}
+          className="profile-dialog-card"
         >
           <ProfileForm
             mode="create"
@@ -2485,6 +2968,7 @@ function ProfilesPage({
             isSaving={isSavingProfile}
             formError={formError}
             headingId="add-profile-title"
+            sources={sources}
             notificationChannels={notificationChannels}
             onSubmit={handleCreateProfile}
             onCancel={() => {
@@ -2508,6 +2992,43 @@ function ProfilesPage({
             headingId="edit-notification-channel-title"
             onSubmit={handleUpdateNotificationChannel}
             onCancel={cancelEditNotificationChannel}
+          />
+        </ModalDialog>
+      ) : null}
+
+      {editingSourceId !== null ? (
+        <ModalDialog title="Edit source dialog" onClose={cancelEditSource}>
+          <SourceForm
+            mode="edit"
+            initialDraft={editSourceDraft}
+            isSaving={isSavingSource}
+            formError={sourceFormError}
+            headingId="edit-source-title"
+            onSubmit={handleUpdateSource}
+            onCancel={cancelEditSource}
+          />
+        </ModalDialog>
+      ) : null}
+
+      {isCreateSourceDialogOpen ? (
+        <ModalDialog
+          title="Add source dialog"
+          onClose={() => {
+            setIsCreateSourceDialogOpen(false);
+            setSourceFormError("");
+          }}
+        >
+          <SourceForm
+            mode="create"
+            initialDraft={createSourceDraft}
+            isSaving={isSavingSource}
+            formError={sourceFormError}
+            headingId="add-source-title"
+            onSubmit={handleCreateSource}
+            onCancel={() => {
+              setIsCreateSourceDialogOpen(false);
+              setSourceFormError("");
+            }}
           />
         </ModalDialog>
       ) : null}
@@ -2543,9 +3064,349 @@ type ContextPageProps = {
 };
 
 function ChatbotPage({ selectedProfile }: ContextPageProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  type ChatTurn = {
+    id: string;
+    message: string;
+    agentResponse: string;
+    failed?: boolean;
+  };
+
+  const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
+  const [chatTurnsBySession, setChatTurnsBySession] = useState<
+    Record<string, ChatTurn[]>
+  >({});
+  const [quickReplies, setQuickReplies] = useState<ChatQuickReply[]>([]);
+  const [question, setQuestion] = useState("");
+  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [isSendSuccess, setIsSendSuccess] = useState(false);
+  const sendSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [chatError, setChatError] = useState("");
+  const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(false);
+  const [isSessionIdCopied, setIsSessionIdCopied] = useState(false);
+  const sessionIdCopiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [voiceInputLanguage, setVoiceInputLanguage] =
+    useState<ChatbotVoiceLanguage>(() =>
+      resolveChatbotVoiceLanguage(
+        typeof navigator === "object" ? navigator.language : null,
+      ),
+    );
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  const chatTurns = chatTurnsBySession[sessionId] ?? [];
+
+  function appendTurnToSession(targetSessionId: string, nextTurn: ChatTurn) {
+    setChatTurnsBySession((current) => {
+      const sessionTurns = current[targetSessionId] ?? [];
+      return {
+        ...current,
+        [targetSessionId]: [...sessionTurns, nextTurn],
+      };
+    });
+  }
+
+  function startNewChatSession() {
+    setSessionId(crypto.randomUUID());
+    setQuestion("");
+    setPendingQuestion(null);
+    setChatError("");
+    setIsSessionInfoOpen(false);
+    setSelectedFileName(null);
+    setIsSendSuccess(false);
+    if (sendSuccessTimerRef.current) {
+      clearTimeout(sendSuccessTimerRef.current);
+      sendSuccessTimerRef.current = null;
+    }
+    setIsRecording(false);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    const actionTraceId = generateActionTraceId();
+
+    void listChatQuickReplies(actionTraceId)
+      .then((response) => {
+        if (!cancelled) {
+          setQuickReplies(Array.isArray(response) ? response : []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setQuickReplies([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedProfile) {
+      setChatTurnsBySession({});
+      setQuestion("");
+      setPendingQuestion(null);
+      setChatError("");
+      return;
+    }
+
+    startNewChatSession();
+  }, [selectedProfile?.id, location.key]);
+
+  useEffect(() => {
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognitionCtor) {
+      recognitionRef.current = null;
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = voiceInputLanguage;
+
+    recognition.onresult = (event: any) => {
+      let transcript = "";
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcript += event.results[index][0].transcript;
+      }
+      setQuestion(transcript.trimStart());
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.onerror = () => {
+      setIsRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+      try {
+        recognition.stop();
+      } catch {
+        // Ignore stop failures during unmount.
+      }
+      recognitionRef.current = null;
+    };
+  }, [voiceInputLanguage]);
+
+  useEffect(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.lang = voiceInputLanguage;
+    }
+  }, [voiceInputLanguage]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chatTurns, pendingQuestion, isSending]);
+
+  async function submitQuestion(
+    rawQuestion: string,
+    providedSessionId?: string,
+  ) {
+    if (!selectedProfile) {
+      return;
+    }
+
+    const trimmedQuestion = rawQuestion.trim();
+
+    if (!trimmedQuestion) {
+      setChatError("Please enter a question before submitting.");
+      return;
+    }
+
+    const promptForApi = selectedFileName
+      ? `${trimmedQuestion}\n\nAttached file: ${selectedFileName}`
+      : trimmedQuestion;
+    const requestSessionId =
+      typeof providedSessionId === "string" && providedSessionId.trim()
+        ? providedSessionId
+        : sessionId;
+
+    if (isRecording) {
+      try {
+        recognitionRef.current?.stop?.();
+      } catch {
+        // Ignore stop failures while transitioning from record to send.
+      }
+      setIsRecording(false);
+    }
+
+    setIsSending(true);
+    setPendingQuestion(promptForApi);
+    setQuestion("");
+    setChatError("");
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      const dispatchResult = await dispatchChatbotMessage(
+        {
+          profileId: selectedProfile.id,
+          sessionId: requestSessionId,
+          message: promptForApi,
+        },
+        actionTraceId,
+      );
+
+      console.debug("Dispatch result received:", {
+        dispatchResult,
+        dispatchResultKeys: Object.keys(dispatchResult ?? {}),
+      });
+
+      const assistantResponse = findDispatchResponseText(dispatchResult);
+
+      console.debug("Extracted assistant response:", {
+        assistantResponse,
+        wasFound: assistantResponse !== null,
+      });
+
+      if (!assistantResponse) {
+        console.error("Dispatch response extraction failed", {
+          dispatchResult,
+          dispatchResultJSON: JSON.stringify(dispatchResult),
+          traceId: actionTraceId,
+        });
+        throw new Error(
+          "Chatbot dispatch did not return a synchronous assistant response.",
+        );
+      }
+
+      appendTurnToSession(requestSessionId, {
+        id: crypto.randomUUID(),
+        message: promptForApi,
+        agentResponse: assistantResponse,
+      });
+
+      setPendingQuestion(null);
+      setSelectedFileName(null);
+      setIsSendSuccess(true);
+      if (sendSuccessTimerRef.current) {
+        clearTimeout(sendSuccessTimerRef.current);
+      }
+      sendSuccessTimerRef.current = setTimeout(() => {
+        setIsSendSuccess(false);
+      }, 2000);
+    } catch (error) {
+      const errorMessage = withChatbotFailureDetails(
+        "Failed to process your message in the chatbot service.",
+        error,
+        actionTraceId,
+      );
+      appendTurnToSession(requestSessionId, {
+        id: crypto.randomUUID(),
+        message: promptForApi,
+        agentResponse: errorMessage,
+        failed: true,
+      });
+      setPendingQuestion(null);
+      setChatError(errorMessage);
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  function resetChat() {
+    if (isSending) {
+      return;
+    }
+
+    try {
+      recognitionRef.current?.stop?.();
+    } catch {
+      // Ignore stop failures when resetting the chat.
+    }
+
+    startNewChatSession();
+  }
+
+  async function copySessionIdToClipboard() {
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      setIsSessionIdCopied(true);
+      if (sessionIdCopiedTimerRef.current) {
+        clearTimeout(sessionIdCopiedTimerRef.current);
+      }
+      sessionIdCopiedTimerRef.current = setTimeout(() => {
+        setIsSessionIdCopied(false);
+      }, 2000);
+    } catch {
+      setChatError("Could not copy session id to clipboard.");
+    }
+  }
+
+  function handleAttachClick() {
+    fileInputRef.current?.click();
+  }
+
+  function handleFileSelection(event: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0] ?? null;
+    setSelectedFileName(selectedFile ? selectedFile.name : null);
+  }
+
+  function toggleVoiceInput() {
+    if (!recognitionRef.current) {
+      setChatError("Voice input is not supported in this browser.");
+      return;
+    }
+
+    if (isRecording) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    setChatError("");
+    recognitionRef.current.start();
+    setIsRecording(true);
+  }
+
+  async function handleSubmitQuestion(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitQuestion(question);
+  }
+
+  async function handleQuickReply(prompt: string) {
+    const normalizedPrompt = prompt.trim();
+
+    if (!normalizedPrompt || isSending) {
+      return;
+    }
+
+    const resolvedSessionId =
+      typeof sessionId === "string" && sessionId.trim().length > 0
+        ? sessionId
+        : crypto.randomUUID();
+
+    if (resolvedSessionId !== sessionId) {
+      setSessionId(resolvedSessionId);
+    }
+
+    await submitQuestion(normalizedPrompt, resolvedSessionId);
+  }
+
   if (!selectedProfile) {
     return (
-      <section className="page" aria-labelledby="chatbot-title">
+      <section className="page chat-page" aria-labelledby="chatbot-title">
         <h1 id="chatbot-title">Chatbot</h1>
         <article className="panel empty-state">
           <h3>No profile selected</h3>
@@ -2556,20 +3417,848 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
   }
 
   return (
-    <section className="page" aria-labelledby="chatbot-title">
+    <section className="page chat-page" aria-labelledby="chatbot-title">
       <h1 id="chatbot-title">Chatbot</h1>
-      <p className="page-intro">
-        Active profile: <strong>{selectedProfile.name}</strong>
-      </p>
       <div className="panel chat-panel">
-        <p className="chat-question">
-          What changed in AI model evaluation today for this profile?
-        </p>
-        <p className="chat-answer">
-          This placeholder answer is scoped to the currently selected profile
-          configuration.
-        </p>
+        <div className="chat-assistant-header">
+          <div>
+            <h2 className="chat-assistant-title">News Assistant</h2>
+          </div>
+          <div className="chat-header-actions">
+            <button
+              type="button"
+              className="chat-icon-btn"
+              onClick={() => {
+                setIsSessionInfoOpen(true);
+              }}
+              title="Session Information"
+              aria-label="Session Information"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="9"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M12 10v6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <circle cx="12" cy="7" r="1.2" fill="currentColor" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="chat-icon-btn"
+              onClick={() => {
+                navigate("/chatbot/history");
+              }}
+              title="Chat History"
+              aria-label="Chat History"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 7v5l3 2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M3 12a9 9 0 1 0 3-6.7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M3 4v3h3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="chat-icon-btn"
+              onClick={resetChat}
+              disabled={isSending}
+              title="New Chat"
+              aria-label="New Chat"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 5v14M5 12h14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {isSessionInfoOpen ? (
+          <ModalDialog
+            title="Session Information"
+            onClose={() => {
+              setIsSessionInfoOpen(false);
+            }}
+            className="chat-session-dialog-card"
+          >
+            <div className="chat-session-info-row">
+              <span className="chat-session-info-value">{sessionId}</span>
+              <button
+                type="button"
+                className={`chat-icon-btn${isSessionIdCopied ? " copied" : ""}`}
+                onClick={() => {
+                  void copySessionIdToClipboard();
+                }}
+                title={isSessionIdCopied ? "Copied!" : "Copy Session Id"}
+                aria-label={isSessionIdCopied ? "Copied!" : "Copy Session Id"}
+              >
+                {isSessionIdCopied ? (
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    aria-hidden="true"
+                  >
+                    <polyline
+                      points="20 6 9 17 4 12"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="9"
+                      y="9"
+                      width="11"
+                      height="11"
+                      rx="2"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    />
+                    <rect
+                      x="4"
+                      y="4"
+                      width="11"
+                      height="11"
+                      rx="2"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
+          </ModalDialog>
+        ) : null}
+
+        {chatError ? <p className="global-error">{chatError}</p> : null}
+
+        <div className="chat-thread" aria-label="Chat history" role="log">
+          <div className="chat-window">
+            {chatTurns.length === 0 && !pendingQuestion ? (
+              <article className="chat-bubble chat-bubble-assistant chat-empty-hint chat-welcome-card">
+                <p className="chat-text">
+                  Welcome. I am your personal news assistant let me know how i
+                  can help you.
+                </p>
+              </article>
+            ) : null}
+            {chatTurns.map((message) => (
+              <div key={message.id} className="chat-turn">
+                <article className="chat-bubble chat-bubble-user">
+                  <p className="chat-role">You</p>
+                  <p className="chat-text">{message.message}</p>
+                </article>
+                <article className="chat-bubble chat-bubble-assistant">
+                  <p className="chat-role">Assistant</p>
+                  <p className="chat-text">
+                    {message.failed
+                      ? `The chatbot agent failed to respond. ${message.agentResponse}`
+                      : message.agentResponse}
+                  </p>
+                </article>
+              </div>
+            ))}
+            {pendingQuestion ? (
+              <div className="chat-turn" aria-live="polite">
+                <article className="chat-bubble chat-bubble-user">
+                  <p className="chat-role">You</p>
+                  <p className="chat-text">{pendingQuestion}</p>
+                </article>
+                <article className="chat-bubble chat-bubble-assistant">
+                  <p className="chat-role">Assistant</p>
+                  <p className="chat-text">Thinking...</p>
+                </article>
+              </div>
+            ) : null}
+            <div ref={chatEndRef} />
+          </div>
+        </div>
+
+        <form className="chat-form" onSubmit={handleSubmitQuestion}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="chat-file-input"
+            onChange={handleFileSelection}
+          />
+          {selectedFileName ? (
+            <div
+              className="chat-attachment-chip"
+              role="status"
+              aria-live="polite"
+            >
+              {selectedFileName}
+              <button
+                type="button"
+                className="chat-attachment-remove"
+                onClick={() => {
+                  setSelectedFileName(null);
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = "";
+                  }
+                }}
+                aria-label="Remove attached file"
+              >
+                x
+              </button>
+            </div>
+          ) : null}
+          <textarea
+            id="chatbot-question"
+            className="chat-question-input"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                handleSubmitQuestion(
+                  event as unknown as React.FormEvent<HTMLFormElement>,
+                );
+              }
+            }}
+            placeholder={isRecording ? "Listening..." : "Type your message..."}
+            maxLength={2000}
+            disabled={isSending}
+            autoComplete="off"
+          />
+          <div className="chat-form-actions chat-input-actions">
+            <label className="chat-voice-language-control">
+              <select
+                className="chat-voice-language-select"
+                aria-label="Voice input language"
+                value={voiceInputLanguage}
+                onChange={(event) =>
+                  setVoiceInputLanguage(
+                    event.target.value as ChatbotVoiceLanguage,
+                  )
+                }
+                disabled={isSending || isRecording}
+                title="Language"
+              >
+                {CHATBOT_VOICE_LANGUAGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="chat-icon-btn"
+              onClick={handleAttachClick}
+              aria-label="Attach file"
+              disabled={isSending}
+              title="Attach file"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+              >
+                <path
+                  d="M8 7v9a4 4 0 1 0 8 0V6a3 3 0 1 0-6 0v9a2 2 0 1 0 4 0V8"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={`chat-icon-btn ${isRecording ? "is-recording" : ""}`}
+              onClick={toggleVoiceInput}
+              aria-label={
+                isRecording ? "Stop voice input" : "Start voice input"
+              }
+              disabled={isSending}
+              title={isRecording ? "Stop voice input" : "Start voice input"}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M19 10a7 7 0 1 1-14 0M12 19v3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+            <button
+              type="submit"
+              className={`chat-send-btn${isSendSuccess ? " send-success" : ""}`}
+              disabled={isSending || !question.trim()}
+              aria-label={isSendSuccess ? "Sent!" : "Send message"}
+              title={isSendSuccess ? "Sent!" : "Send"}
+            >
+              {isSending ? (
+                "..."
+              ) : isSendSuccess ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                >
+                  <polyline
+                    points="20 6 9 17 4 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M22 2 11 13"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="m22 2-7 20-4-9-9-4 20-7z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
+        </form>
+
+        <div className="chat-quick-actions" aria-label="Chat quick actions">
+          {quickReplies.map((action, index) => (
+            <button
+              key={`${action.name}-${index}`}
+              type="button"
+              className="chat-action-btn"
+              disabled={isSending}
+              onClick={() => {
+                void handleQuickReply(action.prompt);
+              }}
+            >
+              {action.name}
+            </button>
+          ))}
+        </div>
       </div>
+    </section>
+  );
+}
+
+function ChatHistoryPage({ selectedProfile }: ContextPageProps) {
+  const defaultHistoryQualityFilter = 10;
+  const defaultHistoryTimePeriodFilter: ChatHistoryTimePeriod = "last_day";
+  const defaultHistoryRoleFilter: ChatHistoryRoleFilter = "all";
+  const [qualityFilter, setQualityFilter] = useState(10);
+  const [qualityInputText, setQualityInputText] = useState("10");
+  const [timePeriodFilter, setTimePeriodFilter] =
+    useState<ChatHistoryTimePeriod>("last_day");
+  const [roleFilter, setRoleFilter] = useState<ChatHistoryRoleFilter>("all");
+  const [sessionIdFilter, setSessionIdFilter] = useState("");
+  const [historyRows, setHistoryRows] = useState<ChatHistoryMessage[]>([]);
+  const [historyError, setHistoryError] = useState("");
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
+  type ChatHistoryFilters = {
+    quality: number;
+    timePeriod: ChatHistoryTimePeriod;
+    role: ChatHistoryRoleFilter;
+    sessionId: string;
+  };
+
+  async function loadHistory(filters?: ChatHistoryFilters) {
+    if (!selectedProfile) {
+      return;
+    }
+
+    const effectiveFilters = filters ?? {
+      quality: qualityFilter,
+      timePeriod: timePeriodFilter,
+      role: roleFilter,
+      sessionId: sessionIdFilter.trim(),
+    };
+
+    setIsLoadingHistory(true);
+    setHistoryError("");
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      const rows = await listChatHistoryMessages(
+        selectedProfile.id,
+        {
+          quality: effectiveFilters.quality,
+          timePeriod: effectiveFilters.timePeriod,
+          role: effectiveFilters.role,
+          sessionId: effectiveFilters.sessionId,
+        },
+        actionTraceId,
+      );
+      setHistoryRows(rows);
+      setCurrentPage(1);
+    } catch (error) {
+      setHistoryRows([]);
+      setHistoryError(
+        withTraceId("Could not load chat history.", error, actionTraceId),
+      );
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedProfile) {
+      setHistoryRows([]);
+      setHistoryError("");
+      setCurrentPage(1);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void loadHistory({
+        quality: qualityFilter,
+        timePeriod: timePeriodFilter,
+        role: roleFilter,
+        sessionId: sessionIdFilter.trim(),
+      });
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [
+    selectedProfile?.id,
+    qualityFilter,
+    timePeriodFilter,
+    roleFilter,
+    sessionIdFilter,
+  ]);
+
+  function resetFilters() {
+    setQualityFilter(defaultHistoryQualityFilter);
+    setQualityInputText(String(defaultHistoryQualityFilter));
+    setTimePeriodFilter(defaultHistoryTimePeriodFilter);
+    setRoleFilter(defaultHistoryRoleFilter);
+    setSessionIdFilter("");
+    setCurrentPage(1);
+  }
+
+  function filterBySession(sessionId: string) {
+    resetFilters();
+    setSessionIdFilter(sessionId);
+    setTimePeriodFilter("all");
+    setCurrentPage(1);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(historyRows.length / itemsPerPage));
+  const paginatedRows = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return historyRows.slice(startIndex, startIndex + itemsPerPage);
+  }, [historyRows, currentPage]);
+
+  if (!selectedProfile) {
+    return (
+      <section className="page" aria-labelledby="chat-history-title">
+        <h1 id="chat-history-title">Chat History</h1>
+        <article className="panel empty-state">
+          <h3>No profile selected</h3>
+          <p>Select a profile from the header to inspect chat history.</p>
+        </article>
+      </section>
+    );
+  }
+
+  return (
+    <section className="page" aria-labelledby="chat-history-title">
+      <h1 id="chat-history-title">{selectedProfile.name} - Chat History</h1>
+
+      <div className="chat-history-filter-container">
+        <form className="chat-history-filter-row">
+          <label
+            className="field chat-history-quality-field"
+            htmlFor="chat-quality-filter"
+          >
+            <span>Quality (≤ value)</span>
+            <input
+              id="chat-quality-filter"
+              name="qualityFilter"
+              type="number"
+              min={1}
+              max={10}
+              step={1}
+              value={qualityInputText}
+              onChange={(event) => {
+                const raw = event.target.value;
+                setQualityInputText(raw);
+                const parsed = Number(raw);
+                if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 10) {
+                  setQualityFilter(parsed);
+                }
+              }}
+              onBlur={() => {
+                const parsed = Number(qualityInputText);
+                const clamped =
+                  Number.isInteger(parsed) && parsed >= 1 && parsed <= 10
+                    ? parsed
+                    : defaultHistoryQualityFilter;
+                setQualityFilter(clamped);
+                setQualityInputText(String(clamped));
+              }}
+              placeholder="1 – 10"
+            />
+          </label>
+
+          <label
+            className="field chat-history-period-field"
+            htmlFor="chat-time-filter"
+          >
+            <span>Time Period</span>
+            <select
+              id="chat-time-filter"
+              name="timePeriodFilter"
+              value={timePeriodFilter}
+              onChange={(event) => {
+                setTimePeriodFilter(
+                  event.target.value as ChatHistoryTimePeriod,
+                );
+              }}
+            >
+              {CHAT_HISTORY_TIME_PERIOD_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label
+            className="field chat-history-role-field"
+            htmlFor="chat-role-filter"
+          >
+            <span>Role</span>
+            <select
+              id="chat-role-filter"
+              name="roleFilter"
+              value={roleFilter}
+              onChange={(event) => {
+                setRoleFilter(event.target.value as ChatHistoryRoleFilter);
+              }}
+            >
+              {CHAT_HISTORY_ROLE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label
+            className="field chat-history-session-field"
+            htmlFor="chat-session-filter"
+          >
+            <span>Session Id</span>
+            <input
+              id="chat-session-filter"
+              name="sessionIdFilter"
+              type="search"
+              value={sessionIdFilter}
+              onChange={(event) => {
+                setSessionIdFilter(event.target.value);
+              }}
+              placeholder="Type all or part of a session id"
+            />
+          </label>
+
+          <div className="chat-history-quality-slider-wrapper">
+            <input
+              aria-label="Quality slider"
+              type="range"
+              min={1}
+              max={10}
+              step={1}
+              value={qualityFilter}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setQualityFilter(value);
+                setQualityInputText(String(value));
+              }}
+              className="chat-history-quality-slider"
+            />
+          </div>
+
+          <div className="chat-history-filter-actions">
+            <button
+              type="button"
+              className="primary-button compact-button"
+              onClick={() => {
+                resetFilters();
+              }}
+              disabled={isLoadingHistory}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="refresh-icon-button"
+              onClick={() => {
+                void loadHistory();
+              }}
+              disabled={isLoadingHistory}
+              title="Refresh chat history"
+              aria-label="Refresh chat history"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M23 4v6h-6" />
+                <path d="M1 20v-6h6" />
+                <path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10" />
+                <path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14" />
+              </svg>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {historyError ? (
+        <p className="form-error" role="alert">
+          {historyError}
+        </p>
+      ) : null}
+
+      {historyRows.length === 1000 ? (
+        <article className="news-errors-warning" role="alert">
+          <strong>Maximum of 1000 rows reached.</strong>
+          <p>
+            Refine your selection with Quality, Time Period, or Session Id to
+            narrow the results.
+          </p>
+        </article>
+      ) : null}
+
+      {isLoadingHistory ? (
+        <article className="panel empty-state">
+          <h3>Loading chat history</h3>
+          <p>Fetching chat records for your current filters.</p>
+        </article>
+      ) : (
+        <>
+          <div
+            className="chat-history-table"
+            role="table"
+            aria-label="Chat history entries"
+          >
+            <div className="chat-history-head" role="row">
+              <span role="columnheader">Timestamp</span>
+              <span role="columnheader">Session Id</span>
+              <span role="columnheader">Role</span>
+              <span role="columnheader">Message</span>
+              <span role="columnheader">Quality</span>
+              <span role="columnheader">Actions</span>
+            </div>
+            {paginatedRows.map((row) => (
+              <div className="chat-history-row" role="row" key={row.id}>
+                <span role="cell">{formatNewsTimestamp(row.createdTs)}</span>
+                <span role="cell" className="chat-history-session-cell">
+                  {row.sessionId}
+                </span>
+                <span role="cell">{row.role}</span>
+                <span role="cell" className="chat-history-message-cell">
+                  {row.message}
+                </span>
+                <span role="cell">{row.quality ?? "-"}</span>
+                <span role="cell" className="chat-history-action-cell">
+                  <button
+                    type="button"
+                    className="chat-icon-btn"
+                    onClick={() => {
+                      void filterBySession(row.sessionId);
+                    }}
+                    title="Show entire session"
+                    aria-label="Show entire session"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M4 5h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M10 9h4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M8 12h6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {historyRows.length === 0 ? (
+            <article className="panel empty-state">
+              <h3>No chat history matches the current filters</h3>
+              <p>Adjust the filters and run search again.</p>
+            </article>
+          ) : null}
+
+          {historyRows.length > 0 ? (
+            <div className="news-pagination">
+              <div className="pagination-info">
+                Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+                {Math.min(currentPage * itemsPerPage, historyRows.length)} of{" "}
+                {historyRows.length} chat entries
+              </div>
+              <div className="pagination-controls">
+                <button
+                  className="primary-button compact-button"
+                  onClick={() =>
+                    setCurrentPage((page) => Math.max(1, page - 1))
+                  }
+                  disabled={currentPage === 1}
+                  aria-label="Previous page"
+                >
+                  Previous
+                </button>
+                <span className="pagination-status" aria-live="polite">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  className="primary-button compact-button"
+                  onClick={() =>
+                    setCurrentPage((page) => Math.min(totalPages, page + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                  aria-label="Next page"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }
@@ -2589,6 +4278,11 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
   const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   const [currentPage, setCurrentPage] = useState(1);
   const [profileErrorCount, setProfileErrorCount] = useState(0);
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapeSuccess, setScrapeSuccess] = useState(false);
+  const scrapeSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const itemsPerPage = 10;
 
   async function loadProfileErrorCount() {
@@ -2632,7 +4326,11 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
       void loadProfileErrorCount();
     } catch (error) {
       setNewsError(
-        withTraceId("Could not load news for the selected profile.", error),
+        withTraceId(
+          "Could not load news for the selected profile.",
+          error,
+          actionTraceId,
+        ),
       );
     } finally {
       if (refreshOnly) {
@@ -2755,7 +4453,9 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
         ),
       );
     } catch (error) {
-      setNewsError(withTraceId("Could not update favorite state.", error));
+      setNewsError(
+        withTraceId("Could not update favorite state.", error, actionTraceId),
+      );
     } finally {
       setPendingFavoriteIds((current) => {
         const next = new Set(current);
@@ -2816,22 +4516,72 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
 
       <div className="news-toolbar">
         <button
-          className="primary-button compact-button"
+          className={`primary-button compact-button news-scrape-btn${scrapeSuccess ? " send-success" : ""}`}
           type="button"
+          disabled={isScraping}
+          aria-label={scrapeSuccess ? "Scrape complete" : "Scrape news"}
+          title={scrapeSuccess ? "Scrape complete" : "Scrape news"}
           onClick={async () => {
             const actionTraceId = generateActionTraceId();
+            setIsScraping(true);
+            setScrapeSuccess(false);
             try {
               await triggerScrapeWorkflow(selectedProfile.id, actionTraceId);
               setNewsError("");
               void loadProfileErrorCount();
+              setScrapeSuccess(true);
+              if (scrapeSuccessTimerRef.current) {
+                clearTimeout(scrapeSuccessTimerRef.current);
+              }
+              scrapeSuccessTimerRef.current = setTimeout(() => {
+                setScrapeSuccess(false);
+              }, 2000);
             } catch (error) {
               setNewsError(
-                withTraceId("Could not trigger scrape workflow.", error),
+                withTraceId(
+                  "Could not trigger scrape workflow.",
+                  error,
+                  actionTraceId,
+                ),
               );
+            } finally {
+              setIsScraping(false);
             }
           }}
         >
-          Scrape
+          {isScraping ? (
+            "..."
+          ) : scrapeSuccess ? (
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <polyline
+                points="20 6 9 17 4 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path
+                d="M5 4h10l4 4v12H5z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M12 9v7M9 13l3 3 3-3"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
         </button>
         <label className="news-toggle" htmlFor="news-auto-refresh">
           <input
@@ -3109,7 +4859,9 @@ function ErrorsPage({ selectedProfile }: ContextPageProps) {
         return loadedErrors[0].id;
       });
     } catch (error) {
-      setErrorsLoadError(withTraceId("Could not load profile errors.", error));
+      setErrorsLoadError(
+        withTraceId("Could not load profile errors.", error, actionTraceId),
+      );
       setErrors([]);
       setSelectedErrorId(null);
       setLastRefreshedAt(null);
@@ -3469,10 +5221,18 @@ function ErrorsPage({ selectedProfile }: ContextPageProps) {
 
 function App() {
   const [activeEnvironment, setActiveEnvironment] =
-    useState<ApiEnvironment | null>(null);
+    useState<ApiEnvironment | null>(() => {
+      // On page refresh (same session), restore from localStorage
+      // On new tab/window (new session), show dialog (return null)
+      if (isSessionEnvironmentSelected()) {
+        return getInitialAppEnvironment();
+      }
+      return null;
+    });
   const [pendingEnvironmentSelection, setPendingEnvironmentSelection] =
     useState<ApiEnvironment>(() => getInitialAppEnvironment() ?? "production");
   const [profiles, setProfiles] = useState<SavedProfile[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
   const [profilesError, setProfilesError] = useState("");
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
   const [notificationChannels, setNotificationChannels] = useState<
@@ -3491,9 +5251,13 @@ function App() {
     try {
       const loadedProfiles = await listProfiles(actionTraceId);
       setProfiles(loadedProfiles);
-    } catch {
+    } catch (error) {
       setProfilesError(
-        "Could not load profiles from the API. Check the backend server and database configuration.",
+        withTraceId(
+          "Could not load profiles from the API. Check the backend server and database configuration.",
+          error,
+          actionTraceId,
+        ),
       );
     } finally {
       setIsLoadingProfiles(false);
@@ -3510,12 +5274,23 @@ function App() {
     }
   }
 
+  async function loadSources() {
+    const actionTraceId = generateActionTraceId();
+    try {
+      const loaded = await listSources(actionTraceId);
+      setSources(loaded);
+    } catch (error) {
+      console.error("Could not load sources:", error);
+    }
+  }
+
   useEffect(() => {
     if (activeEnvironment === null) {
       return;
     }
 
     setApiEnvironment(activeEnvironment);
+    setChatbotApiEnvironment(activeEnvironment);
 
     try {
       window.localStorage.setItem(
@@ -3526,7 +5301,15 @@ function App() {
       // Ignore storage failures and keep runtime-only selection.
     }
 
+    // Mark that environment has been selected in this session
+    try {
+      sessionStorage.setItem(SESSION_ENVIRONMENT_STORAGE_KEY, "true");
+    } catch {
+      // Ignore storage failures
+    }
+
     void loadProfiles();
+    void loadSources();
     void loadNotificationChannels();
   }, [activeEnvironment]);
 
@@ -3544,11 +5327,11 @@ function App() {
         return currentId;
       }
 
-      const aiLlmProfile = profiles.find(
-        (profile) => profile.name.trim().toLocaleLowerCase() === "ai llm",
+      const aiDemoProfile = profiles.find(
+        (profile) => profile.name.trim().toLocaleLowerCase() === "ai demo",
       );
 
-      return aiLlmProfile?.id ?? profiles[0].id;
+      return aiDemoProfile?.id ?? profiles[0].id;
     });
   }, [profiles]);
 
@@ -3610,6 +5393,10 @@ function App() {
     nextProfiles: NotificationChannel[],
   ) {
     setNotificationChannels(nextProfiles);
+  }
+
+  function handleSourcesChanged(nextSources: Source[]) {
+    setSources(nextSources);
   }
 
   return (
@@ -3681,10 +5468,12 @@ function App() {
             element={
               <ProfilesPage
                 profiles={profiles}
+                sources={sources}
                 isLoadingProfiles={isLoadingProfiles}
                 profilesError={profilesError}
                 notificationChannels={notificationChannels}
                 onProfilesChanged={handleProfilesChanged}
+                onSourcesChanged={handleSourcesChanged}
                 onReloadProfiles={loadProfiles}
                 onNotificationChannelsChanged={
                   handleNotificationChannelsChanged
@@ -3695,6 +5484,10 @@ function App() {
           <Route
             path="/chatbot"
             element={<ChatbotPage selectedProfile={selectedProfile} />}
+          />
+          <Route
+            path="/chatbot/history"
+            element={<ChatHistoryPage selectedProfile={selectedProfile} />}
           />
           <Route
             path="/news"
