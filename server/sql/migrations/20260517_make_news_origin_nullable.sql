@@ -1,0 +1,2 @@
+ALTER TABLE news_t
+  ALTER COLUMN origin DROP NOT NULL;

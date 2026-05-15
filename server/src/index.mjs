@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
@@ -144,24 +145,44 @@ logEvent({
   env_files_loaded: sharedEnvFilePaths,
   env_files_loaded_production: environmentScopedEnvFiles.production,
   env_files_loaded_test: environmentScopedEnvFiles.test,
-  scrap_webhook_url_production:
+  scrape_webhook_url_production:
     config.scrapWebhookByEnvironment.production.webhookUrl ?? "(not set)",
-  scrap_webhook_url_test:
+  scrape_webhook_url_test:
     config.scrapWebhookByEnvironment.test.webhookUrl ?? "(not set)",
-  scrap_webhook_basic_auth_user_production: config.scrapWebhookByEnvironment
+  scrape_webhook_basic_auth_user_production: config.scrapWebhookByEnvironment
     .production.basicAuthUser
     ? "(set)"
     : "(not set)",
-  scrap_webhook_basic_auth_user_test: config.scrapWebhookByEnvironment.test
+  scrape_webhook_basic_auth_user_test: config.scrapWebhookByEnvironment.test
     .basicAuthUser
     ? "(set)"
     : "(not set)",
-  scrap_webhook_basic_auth_password_production: config.scrapWebhookByEnvironment
-    .production.basicAuthPassword
+  scrape_webhook_basic_auth_password_production: config
+    .scrapWebhookByEnvironment.production.basicAuthPassword
     ? "(set)"
     : "(not set)",
-  scrap_webhook_basic_auth_password_test: config.scrapWebhookByEnvironment.test
+  scrape_webhook_basic_auth_password_test: config.scrapWebhookByEnvironment.test
     .basicAuthPassword
+    ? "(set)"
+    : "(not set)",
+  chatbot_webhook_url_production:
+    config.chatbotWebhookByEnvironment.production.webhookUrl ?? "(not set)",
+  chatbot_webhook_url_test:
+    config.chatbotWebhookByEnvironment.test.webhookUrl ?? "(not set)",
+  chatbot_webhook_basic_auth_user_production: config.chatbotWebhookByEnvironment
+    .production.basicAuthUser
+    ? "(set)"
+    : "(not set)",
+  chatbot_webhook_basic_auth_user_test: config.chatbotWebhookByEnvironment.test
+    .basicAuthUser
+    ? "(set)"
+    : "(not set)",
+  chatbot_webhook_basic_auth_password_production: config
+    .chatbotWebhookByEnvironment.production.basicAuthPassword
+    ? "(set)"
+    : "(not set)",
+  chatbot_webhook_basic_auth_password_test: config.chatbotWebhookByEnvironment
+    .test.basicAuthPassword
     ? "(set)"
     : "(not set)",
   profile_store: config.profileStore,
@@ -179,6 +200,10 @@ logEvent({
 });
 
 const seedFilePath = join(__dirname, "../../server/sql/seed-profiles.json");
+
+function createNewsHash(link, title) {
+  return createHash("sha256").update(`${link}${title}`, "utf8").digest("hex");
+}
 
 async function autoSeedIfEmpty(repo, environmentLabel) {
   try {
@@ -234,33 +259,42 @@ async function autoSeedIfEmpty(repo, environmentLabel) {
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "");
       const now = Date.now();
+      const firstLink = `https://example.com/news/${slug}-1`;
+      const firstTitle = `${createdProfile.name}: Daily Briefing 1`;
+      const secondLink = `https://example.com/news/${slug}-2`;
+      const secondTitle = `${createdProfile.name}: Daily Briefing 2`;
+      const thirdLink = `https://example.com/news/${slug}-3`;
+      const thirdTitle = `${createdProfile.name}: Daily Briefing 3`;
       const newsItems = [
         {
-          title: `${createdProfile.name}: Daily Briefing 1`,
+          newsId: createNewsHash(firstLink, firstTitle),
+          title: firstTitle,
           summary: `Seeded sample news item 1 for ${createdProfile.name}.`,
           origin: "Seed Runner",
-          link: `https://example.com/news/${slug}-1`,
+          link: firstLink,
           timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
           favorite: false,
-          profileId: createdProfile.id,
+          sourceId: createdProfile.sourceId,
         },
         {
-          title: `${createdProfile.name}: Daily Briefing 2`,
+          newsId: createNewsHash(secondLink, secondTitle),
+          title: secondTitle,
           summary: `Seeded sample news item 2 for ${createdProfile.name}.`,
           origin: "Seed Runner",
-          link: `https://example.com/news/${slug}-2`,
+          link: secondLink,
           timestamp: new Date(now - 60 * 60 * 1000).toISOString(),
           favorite: true,
-          profileId: createdProfile.id,
+          sourceId: createdProfile.sourceId,
         },
         {
-          title: `${createdProfile.name}: Daily Briefing 3`,
+          newsId: createNewsHash(thirdLink, thirdTitle),
+          title: thirdTitle,
           summary: `Seeded sample news item 3 for ${createdProfile.name}.`,
           origin: "Seed Runner",
-          link: `https://example.com/news/${slug}-3`,
+          link: thirdLink,
           timestamp: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
           favorite: false,
-          profileId: createdProfile.id,
+          sourceId: createdProfile.sourceId,
         },
       ];
       for (const newsItem of newsItems) {
@@ -305,6 +339,10 @@ const app = createNewsScraperApi({
   scrapWebhookBasicAuthUser: config.scrapWebhookBasicAuthUser,
   scrapWebhookBasicAuthPassword: config.scrapWebhookBasicAuthPassword,
   scrapWebhookByEnvironment: config.scrapWebhookByEnvironment,
+  chatbotWebhookUrl: config.chatbotWebhookUrl,
+  chatbotWebhookBasicAuthUser: config.chatbotWebhookBasicAuthUser,
+  chatbotWebhookBasicAuthPassword: config.chatbotWebhookBasicAuthPassword,
+  chatbotWebhookByEnvironment: config.chatbotWebhookByEnvironment,
 });
 const server = createServer(app);
 

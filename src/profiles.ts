@@ -7,15 +7,23 @@ export type ProfileUrl = {
 export type RssFeed = {
   id: number;
   feedUrl: string;
-  title: string;
-  refreshCadence: string;
-  format: string;
-  category: string;
+  description?: string;
 };
 
 export type ProfileTag = {
   id: number;
   name: string;
+};
+
+export type SourceInput = {
+  name: string;
+  description: string;
+  urls: Array<Omit<ProfileUrl, "id">>;
+  rssFeeds: Array<Omit<RssFeed, "id">>;
+};
+
+export type Source = SourceInput & {
+  id: number;
 };
 
 export type EmailChannel = {
@@ -46,11 +54,10 @@ export type NotificationChannelInput = {
 export type ProfileInput = {
   name: string;
   description: string;
-  useCustomSources: boolean;
+  systemPrompt: string;
+  sourceId: number;
   tags: string[];
   roles?: string[];
-  urls: Array<Omit<ProfileUrl, "id">>;
-  rssFeeds: Array<Omit<RssFeed, "id">>;
   notificationProfileId?: number | null;
   notificationChannelIds?: number[];
 };
@@ -61,10 +68,11 @@ export type SavedProfile = ProfileInput & {
 
 export type SavedNewsItem = {
   id: number;
-  profileId: number;
+  newsId: string;
+  sourceId: number;
   title: string;
   summary: string;
-  origin: string;
+  origin?: string;
   link: string;
   timestamp: string;
   favorite: boolean;
@@ -94,10 +102,7 @@ export type SavedErrorItem = ErrorInput & {
 const defaultRssFeed: RssFeed = {
   id: 1,
   feedUrl: "",
-  title: "",
-  refreshCadence: "Every 30 minutes",
-  format: "RSS 2.0",
-  category: "AI product updates",
+  description: "",
 };
 
 export function createEmptyUrl(id: number): ProfileUrl {

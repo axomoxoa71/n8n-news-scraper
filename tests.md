@@ -64,17 +64,17 @@ npm run test:e2e
   - Chatbot heading visible after clicking Chatbot menu
   - News heading visible after clicking News menu
 
-### AI LLM profile is selected by default when available
+### AI Demo profile is selected by default when available
 
 - File: `tests/ai-news.spec.ts`
 - What it tests:
-  - Active profile selection prefers `AI LLM` when that profile exists in the loaded profile list
+  - Active profile selection prefers `AI Demo` when that profile exists in the loaded profile list
   - Selection does not depend on API response ordering
 - Setup required:
   - Dev server available at configured `baseURL` (auto-started by Playwright webServer config)
   - Playwright route interception for `GET /api/profiles` and `GET /api/notification-profiles`
 - Assertions made:
-  - Active profile combobox value is `AI LLM` after initial page load
+  - Active profile combobox value is `AI Demo` after initial page load
 
 ### news page supports keyword search and favorites filtering
 
@@ -112,6 +112,22 @@ npm run test:e2e
   - Dev server available at configured `baseURL` (auto-started by Playwright webServer config)
 - Assertions made:
   - Save attempt with missing required values shows a validation message in English
+
+### chatbot voice input language defaults to browser locale and supports German and English
+
+- File: `tests/ai-news.spec.ts`
+- What it tests:
+  - Chatbot voice input exposes an explicit language selector
+  - The selector defaults to a supported language derived from the browser locale
+  - The speech-recognition instance updates when the user switches between English and German
+- Setup required:
+  - Dev server available at configured `baseURL` (auto-started by Playwright webServer config)
+  - Environment selection confirmed in the UI so profiles are loaded
+  - Playwright route interception for `GET /api/profiles` and `GET /api/notification-profiles`
+  - Playwright init script mocking browser `SpeechRecognition` and `navigator.language`
+- Assertions made:
+  - Voice input language selector defaults to `de-DE` when browser language is German
+  - Speech-recognition language changes from `de-DE` to `en-US` after selector update
 
 ### user can add a profile with URLs and RSS settings
 
@@ -392,6 +408,42 @@ npm run test:e2e
   - Search query returns matching entries
   - Fetch-by-id endpoint returns expected workflow id
 
+### chatbot dispatch API returns answer without persisting chat history
+
+- File: `server/news-scraper-api.test.mjs`
+- What it tests:
+  - `POST /api/chats/dispatch` returns a synchronous chatbot answer from webhook output
+  - Dispatch mode does not persist chat history rows to storage
+- Setup required:
+  - Local upstream stub server for chatbot webhook target
+- Assertions made:
+  - Dispatch request returns `200` with `agentResponse`, `executionId`, and `sessionId`
+  - `GET /api/profiles/{id}/chats` remains empty after dispatch
+
+### chatbot dispatch API fails when webhook returns no synchronous answer
+
+- File: `server/news-scraper-api.test.mjs`
+- What it tests:
+  - `POST /api/chats/dispatch` rejects webhook payloads that only acknowledge execution without a synchronous answer
+- Setup required:
+  - Local upstream stub server for chatbot webhook target that returns accepted-style payload without answer text
+- Assertions made:
+  - Dispatch request returns `502`
+  - Error payload contains `Chatbot webhook did not return a synchronous answer.`
+  - `GET /api/profiles/{id}/chats` remains empty after failure
+
+### chatbot dispatch API supports nested synchronous answer fields
+
+- File: `server/news-scraper-api.test.mjs`
+- What it tests:
+  - `POST /api/chats/dispatch` extracts answer and execution id from nested webhook payload shapes
+- Setup required:
+  - Local upstream stub server for chatbot webhook target with nested response JSON
+- Assertions made:
+  - Dispatch request returns `200`
+  - Response contains normalized `agentResponse` and `executionId`
+  - `GET /api/profiles/{id}/chats` remains empty after dispatch
+
 ### scrape trigger clears existing profile errors before triggering workflow
 
 - File: `server/news-scraper-api.test.mjs`
@@ -536,9 +588,9 @@ All tests in this section are in `server/seed-data.test.mjs`.
 
 - Verifies the total seeded profile count is exactly 4.
 
-#### AI LLM profile exists
+#### AI Demo profile exists
 
-- Verifies the `AI LLM` profile is present.
+- Verifies the `AI Demo` profile is present.
 
 #### Error Test Profile exists
 
@@ -572,27 +624,19 @@ All tests in this section are in `server/seed-data.test.mjs`.
 
 - Verifies exactly 3 news items are linked to each profile after seeding.
 
-#### AI LLM profile contains https://invalid/ URL
+#### AI Demo profile contains specific valid URLs
 
-- Verifies the invalid URL is present in the AI LLM profile for validation testing.
+- Verifies `https://ai.meta.com/blog/`, `https://openai.com/news/`, and `https://www.anthropic.com/news` are present.
 
-#### AI LLM profile contains specific valid URLs
+#### AI Demo profile contains specific RSS feeds
 
-- Verifies technologyreview.com, unite.ai, and aiuniverseexplorer.com URLs are present.
+- Verifies `https://openai.com/news/rss.xml`, `https://huggingface.co/blog/feed.xml`, and the Anthropic RSS feed URL are present.
 
-#### AI LLM profile contains https://invalid/rss.xml RSS feed
-
-- Verifies the invalid RSS feed is present for feed error testing.
-
-#### AI LLM profile contains https://planet-ai.net/rss.xml RSS feed
-
-- Verifies the Planet AI feed is present.
-
-#### AI LLM profile tags include llm, anthropic, claude
+#### AI Demo profile tags include llm, openai, claude
 
 - Verifies all three required tags are present.
 
-#### AI LLM profile roles include Solution Architect and Software Engineer
+#### AI Demo profile roles include Solution Architect and Software Engineer
 
 - Verifies both required roles are present.
 

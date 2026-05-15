@@ -1,10 +1,49 @@
 import express from "express";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { logEvent } from "./logger.mjs";
-import { validateProfileInput } from "./validation.mjs";
+import {
+  validateChatMessageInput,
+  validateProfileInput,
+  validateSourceInput,
+} from "./validation.mjs";
 
 const TRACEPARENT_PATTERN =
   /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})(?:-.+)?$/i;
+const PROFILE_CONTEXT_PATTERN = /\bprofile\b/i;
+const PROFILE_SYSTEM_PROMPT_CONTEXT = [
+  "Profile Id: 1",
+  "Profile Name: AI Demo",
+].join("\n");
+
+const QUICK_REPLY_CONFIG_PATH = new URL("./quick-reply.json", import.meta.url);
+
+function loadQuickReplyConfig() {
+  try {
+    const parsedConfig = JSON.parse(
+      readFileSync(QUICK_REPLY_CONFIG_PATH, "utf8"),
+    );
+
+    if (!Array.isArray(parsedConfig)) {
+      return [];
+    }
+
+    return parsedConfig
+      .filter(
+        (entry) =>
+          typeof entry?.name === "string" && typeof entry?.prompt === "string",
+      )
+      .map((entry) => ({
+        name: entry.name.trim(),
+        prompt: entry.prompt.trim(),
+      }))
+      .filter((entry) => entry.name.length > 0 && entry.prompt.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+const QUICK_REPLY_CONFIG = loadQuickReplyConfig();
 
 function randomHex(byteLength) {
   return randomBytes(byteLength).toString("hex");
@@ -37,6 +76,19 @@ function parseTraceparent(headerValue) {
     parentSpanId: parentSpanId.toLowerCase(),
     traceFlags: traceFlags.toLowerCase(),
   };
+}
+
+function enrichMessageWithProfileContext(message) {
+  if (typeof message !== "string") {
+    return "";
+  }
+
+  const trimmedMessage = message.trim();
+  if (!PROFILE_CONTEXT_PATTERN.test(trimmedMessage)) {
+    return trimmedMessage;
+  }
+
+  return `${trimmedMessage}\n\n${PROFILE_SYSTEM_PROMPT_CONTEXT}`;
 }
 
 function createTraceContext(request) {
@@ -78,13 +130,149 @@ function sendError(request, response, statusCode, errorMessage) {
   });
 }
 
+function isNewsIdConflictError(error) {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    error.code === "23505" &&
+    error.constraint === "news_t_news_id_uk"
+  );
+}
+
 function parseProfileId(value) {
   const profileId = Number(value);
   return Number.isInteger(profileId) && profileId > 0 ? profileId : null;
 }
 
+function parseOptionalInteger(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function parseChatHistoryTimePeriod(value) {
+  if (value === undefined || value === null || value === "") {
+    return "last_day";
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLocaleLowerCase();
+  if (
+    normalized === "last_hour" ||
+    normalized === "last_day" ||
+    normalized === "last_week" ||
+    normalized === "last_month" ||
+    normalized === "all"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function parseChatHistoryRole(value) {
+  if (value === undefined || value === null || value === "") {
+    return "all";
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLocaleLowerCase();
+  if (
+    normalized === "all" ||
+    normalized === "user" ||
+    normalized === "assistant"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function getChatHistorySinceTimestamp(timePeriod, now = new Date()) {
+  if (timePeriod === "all") {
+    return null;
+  }
+
+  const periodStart = new Date(now.getTime());
+
+  if (timePeriod === "last_hour") {
+    periodStart.setHours(periodStart.getHours() - 1);
+    return periodStart.toISOString();
+  }
+
+  if (timePeriod === "last_week") {
+    periodStart.setDate(periodStart.getDate() - 7);
+    return periodStart.toISOString();
+  }
+
+  if (timePeriod === "last_month") {
+    periodStart.setMonth(periodStart.getMonth() - 1);
+    return periodStart.toISOString();
+  }
+
+  periodStart.setDate(periodStart.getDate() - 1);
+  return periodStart.toISOString();
+}
+
 function parseBoolean(value) {
   return typeof value === "boolean" ? value : null;
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function findStringInJson(value, preferredKeys) {
+  const queue = [{ value, isRoot: true }];
+
+  while (queue.length > 0) {
+    const currentEntry = queue.shift();
+    const current = currentEntry?.value;
+
+    if (
+      currentEntry?.isRoot &&
+      typeof current === "string" &&
+      current.trim().length > 0
+    ) {
+      return current.trim();
+    }
+
+    if (Array.isArray(current)) {
+      for (const entry of current) {
+        queue.push({ value: entry, isRoot: false });
+      }
+      continue;
+    }
+
+    if (!isRecord(current)) {
+      continue;
+    }
+
+    for (const key of preferredKeys) {
+      const preferredValue = current[key];
+      if (
+        typeof preferredValue === "string" &&
+        preferredValue.trim().length > 0
+      ) {
+        return preferredValue.trim();
+      }
+    }
+
+    for (const entry of Object.values(current)) {
+      queue.push({ value: entry, isRoot: false });
+    }
+  }
+
+  return null;
 }
 
 function parseErrorInput(body) {
@@ -179,7 +367,8 @@ function parseErrorInput(body) {
 }
 
 function parseNewsInput(body) {
-  const profileId = parseProfileId(body?.profileId);
+  const sourceId = parseProfileId(body?.sourceId);
+  const newsId = typeof body?.newsId === "string" ? body.newsId.trim() : "";
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   const summary = typeof body?.summary === "string" ? body.summary.trim() : "";
   const origin = typeof body?.origin === "string" ? body.origin.trim() : "";
@@ -190,8 +379,12 @@ function parseNewsInput(body) {
       ? body.timestamp.trim()
       : new Date().toISOString();
 
-  if (profileId === null) {
-    return { valid: false, error: "profileId must be a positive integer." };
+  if (sourceId === null) {
+    return { valid: false, error: "sourceId must be a positive integer." };
+  }
+
+  if (!newsId) {
+    return { valid: false, error: "newsId is required." };
   }
 
   if (!title) {
@@ -200,10 +393,6 @@ function parseNewsInput(body) {
 
   if (!summary) {
     return { valid: false, error: "summary is required." };
-  }
-
-  if (!origin) {
-    return { valid: false, error: "origin is required." };
   }
 
   if (!link) {
@@ -218,7 +407,8 @@ function parseNewsInput(body) {
   return {
     valid: true,
     value: {
-      profileId,
+      newsId,
+      sourceId,
       title,
       summary,
       origin,
@@ -231,6 +421,75 @@ function parseNewsInput(body) {
 
 function encodeBasicAuth(user, password) {
   return Buffer.from(`${user}:${password}`, "utf8").toString("base64");
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const HTTPS_URL_PATTERN = /^https?:\/\/.+/i;
+
+function validateNotificationChannels(channels) {
+  if (!Array.isArray(channels) || channels.length === 0) {
+    return {
+      valid: false,
+      error: "At least one notification channel is required.",
+    };
+  }
+
+  for (let index = 0; index < channels.length; index++) {
+    const channel = channels[index];
+
+    if (typeof channel !== "object" || channel === null) {
+      return {
+        valid: false,
+        error: `Channel at index ${index} must be an object.`,
+      };
+    }
+
+    const hasEmail = "emailAddresses" in channel;
+    const hasSlack = "slackWebhookUrl" in channel;
+
+    if (!hasEmail && !hasSlack) {
+      return {
+        valid: false,
+        error: `Channel at index ${index} must have either emailAddresses or slackWebhookUrl.`,
+      };
+    }
+
+    if (hasEmail) {
+      const { emailAddresses } = channel;
+      if (!Array.isArray(emailAddresses) || emailAddresses.length === 0) {
+        return {
+          valid: false,
+          error: `Channel at index ${index}: emailAddresses must be a non-empty array.`,
+        };
+      }
+      for (const address of emailAddresses) {
+        if (
+          typeof address !== "string" ||
+          !EMAIL_PATTERN.test(address.trim())
+        ) {
+          return {
+            valid: false,
+            error: `Channel at index ${index}: "${address}" is not a valid email address.`,
+          };
+        }
+      }
+    }
+
+    if (hasSlack) {
+      const { slackWebhookUrl } = channel;
+      if (
+        typeof slackWebhookUrl !== "string" ||
+        !HTTPS_URL_PATTERN.test(slackWebhookUrl.trim())
+      ) {
+        return {
+          valid: false,
+          error: `Channel at index ${index}: slackWebhookUrl must be a valid URL starting with http:// or https://.`,
+        };
+      }
+    }
+  }
+
+  return { valid: true };
 }
 
 function getRequestedEnvironment(request) {
@@ -277,6 +536,35 @@ async function validateNotificationChannelSelection(repository, profileInput) {
   };
 }
 
+async function validateSourceSelection(repository, profileInput) {
+  if (
+    !Number.isInteger(profileInput.sourceId) ||
+    Number(profileInput.sourceId) <= 0
+  ) {
+    return { valid: true };
+  }
+
+  if (typeof repository.listSources !== "function") {
+    return { valid: true };
+  }
+
+  const sources = await repository.listSources();
+  const existingSourceIds = new Set(
+    sources
+      .map((source) => Number(source.id))
+      .filter((sourceId) => Number.isInteger(sourceId) && sourceId > 0),
+  );
+
+  if (existingSourceIds.has(profileInput.sourceId)) {
+    return { valid: true };
+  }
+
+  return {
+    valid: false,
+    error: `Unknown source id: ${profileInput.sourceId}.`,
+  };
+}
+
 export function createNewsScraperApi({
   repository,
   repositoryByEnvironment,
@@ -284,6 +572,11 @@ export function createNewsScraperApi({
   scrapWebhookBasicAuthUser,
   scrapWebhookBasicAuthPassword,
   scrapWebhookByEnvironment,
+  chatbotWebhookUrl,
+  chatbotWebhookBasicAuthUser,
+  chatbotWebhookBasicAuthPassword,
+  chatbotWebhookByEnvironment,
+  chatbotWebhookTimeoutMs = 60_000,
 }) {
   function resolveRepository(request) {
     if (repositoryByEnvironment) {
@@ -298,6 +591,11 @@ export function createNewsScraperApi({
   app.locals.scrapWebhookBasicAuthUser = scrapWebhookBasicAuthUser;
   app.locals.scrapWebhookBasicAuthPassword = scrapWebhookBasicAuthPassword;
   app.locals.scrapWebhookByEnvironment = scrapWebhookByEnvironment;
+  app.locals.chatbotWebhookUrl = chatbotWebhookUrl;
+  app.locals.chatbotWebhookBasicAuthUser = chatbotWebhookBasicAuthUser;
+  app.locals.chatbotWebhookBasicAuthPassword = chatbotWebhookBasicAuthPassword;
+  app.locals.chatbotWebhookByEnvironment = chatbotWebhookByEnvironment;
+  app.locals.chatbotWebhookTimeoutMs = chatbotWebhookTimeoutMs;
 
   app.use(express.json({ limit: "1mb" }));
 
@@ -351,6 +649,16 @@ export function createNewsScraperApi({
     }
 
     try {
+      const sourceSelectionValidation = await validateSourceSelection(
+        resolveRepository(request),
+        validationResult.value,
+      );
+
+      if (!sourceSelectionValidation.valid) {
+        sendError(request, response, 400, sourceSelectionValidation.error);
+        return;
+      }
+
       const notificationChannelSelectionValidation =
         await validateNotificationChannelSelection(
           resolveRepository(request),
@@ -397,6 +705,16 @@ export function createNewsScraperApi({
     }
 
     try {
+      const sourceSelectionValidation = await validateSourceSelection(
+        resolveRepository(request),
+        validationResult.value,
+      );
+
+      if (!sourceSelectionValidation.valid) {
+        sendError(request, response, 400, sourceSelectionValidation.error);
+        return;
+      }
+
       const notificationChannelSelectionValidation =
         await validateNotificationChannelSelection(
           resolveRepository(request),
@@ -456,21 +774,112 @@ export function createNewsScraperApi({
     }
   });
 
-  app.get("/api/news", async (request, response, next) => {
-    const profileId = parseProfileId(request.query.profileId);
+  app.get("/api/sources", async (request, response, next) => {
+    try {
+      const sources = await resolveRepository(request).listSources();
+      response.json(sources);
+    } catch (error) {
+      next(error);
+    }
+  });
 
-    if (profileId === null) {
+  app.post("/api/sources", async (request, response, next) => {
+    const validationResult = validateSourceInput(request.body);
+
+    if (!validationResult.valid) {
+      sendError(request, response, 400, validationResult.error);
+      return;
+    }
+
+    try {
+      const createdSource = await resolveRepository(request).createSource(
+        validationResult.value,
+      );
+      response.status(201).json(createdSource);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/sources/:id", async (request, response, next) => {
+    const sourceId = parseProfileId(request.params.id);
+
+    if (sourceId === null) {
       sendError(
         request,
         response,
         400,
-        "profileId query parameter must be a positive integer.",
+        "Source id must be a positive integer.",
+      );
+      return;
+    }
+
+    const validationResult = validateSourceInput(request.body);
+
+    if (!validationResult.valid) {
+      sendError(request, response, 400, validationResult.error);
+      return;
+    }
+
+    try {
+      const updatedSource = await resolveRepository(request).updateSource(
+        sourceId,
+        validationResult.value,
+      );
+
+      if (updatedSource === null) {
+        sendError(request, response, 404, "Source not found.");
+        return;
+      }
+
+      response.json(updatedSource);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/sources/:id", async (request, response, next) => {
+    const sourceId = parseProfileId(request.params.id);
+
+    if (sourceId === null) {
+      sendError(
+        request,
+        response,
+        400,
+        "Source id must be a positive integer.",
       );
       return;
     }
 
     try {
-      const news = await resolveRepository(request).listNews(profileId);
+      const deleted = await resolveRepository(request).deleteSource(sourceId);
+
+      if (!deleted) {
+        sendError(request, response, 404, "Source not found.");
+        return;
+      }
+
+      response.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/news", async (request, response, next) => {
+    const sourceId = parseProfileId(request.query.sourceId);
+
+    if (sourceId === null) {
+      sendError(
+        request,
+        response,
+        400,
+        "sourceId query parameter must be a positive integer.",
+      );
+      return;
+    }
+
+    try {
+      const news = await resolveRepository(request).listNews(sourceId);
       response.json(news);
     } catch (error) {
       next(error);
@@ -479,7 +888,7 @@ export function createNewsScraperApi({
 
   app.put("/api/news/:id/favorite", async (request, response, next) => {
     const newsId = parseProfileId(request.params.id);
-    const profileId = parseProfileId(request.body?.profileId);
+    const sourceId = parseProfileId(request.body?.sourceId);
     const favorite = parseBoolean(request.body?.favorite);
 
     if (newsId === null) {
@@ -487,12 +896,12 @@ export function createNewsScraperApi({
       return;
     }
 
-    if (profileId === null) {
+    if (sourceId === null) {
       sendError(
         request,
         response,
         400,
-        "profileId in request body must be a positive integer.",
+        "sourceId in request body must be a positive integer.",
       );
       return;
     }
@@ -510,7 +919,7 @@ export function createNewsScraperApi({
     try {
       const updatedNewsItem = await resolveRepository(
         request,
-      ).updateNewsFavorite(profileId, newsId, favorite);
+      ).updateNewsFavorite(sourceId, newsId, favorite);
 
       if (updatedNewsItem === null) {
         sendError(request, response, 404, "News item not found.");
@@ -547,6 +956,11 @@ export function createNewsScraperApi({
       );
       response.status(201).json(createdNewsItem);
     } catch (error) {
+      if (isNewsIdConflictError(error)) {
+        sendError(request, response, 409, "newsId must be unique.");
+        return;
+      }
+
       next(error);
     }
   });
@@ -652,11 +1066,11 @@ export function createNewsScraperApi({
       logEvent({
         level: "error",
         layer: "webhook",
-        message: "scrap_webhook_not_configured",
+        message: "scrape_webhook_not_configured",
         traceId: traceCtx.traceId,
         span_id: traceCtx.spanId,
         parent_span_id: traceCtx.parentSpanId,
-        detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAP_WEBHOOK_URL (or N8N_WORKFLOW_URL) in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
+        detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAPE_WEBHOOK_URL (or N8N_WORKFLOW_URL) in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
       });
       sendError(request, response, 503, "Scrape workflow is not configured.");
       return;
@@ -667,7 +1081,7 @@ export function createNewsScraperApi({
       logEvent({
         level: "error",
         layer: "webhook",
-        message: "scrap_webhook_credentials_not_configured",
+        message: "scrape_webhook_credentials_not_configured",
         traceId: traceCtx.traceId,
         span_id: traceCtx.spanId,
         parent_span_id: traceCtx.parentSpanId,
@@ -767,7 +1181,7 @@ export function createNewsScraperApi({
         logEvent({
           level: "error",
           layer: "webhook",
-          message: "scrap_webhook_trigger_failed",
+          message: "scrape_webhook_trigger_failed",
           traceId: traceContext.traceId,
           span_id: traceContext.spanId,
           parent_span_id: traceContext.parentSpanId,
@@ -788,7 +1202,7 @@ export function createNewsScraperApi({
       logEvent({
         level: "error",
         layer: "webhook",
-        message: "scrap_webhook_trigger_error",
+        message: "scrape_webhook_trigger_error",
         traceId: traceContext.traceId,
         span_id: traceContext.spanId,
         parent_span_id: traceContext.parentSpanId,
@@ -799,6 +1213,862 @@ export function createNewsScraperApi({
       });
 
       sendError(request, response, 502, "Could not trigger scrape workflow.");
+    }
+  });
+
+  // New endpoint: trigger scrape by source, send only source JSON to n8n
+  app.post("/api/news/source/scrape", async (request, response) => {
+    const requestedEnvironment = getRequestedEnvironment(request);
+    const environmentWebhookConfig =
+      request.app.locals?.scrapWebhookByEnvironment?.[requestedEnvironment];
+
+    const workflowUrl =
+      environmentWebhookConfig?.webhookUrl ??
+      request.app.locals?.scrapWebhookUrl;
+    const basicAuthUser =
+      environmentWebhookConfig?.basicAuthUser ??
+      request.app.locals?.scrapWebhookBasicAuthUser;
+    const basicAuthPassword =
+      environmentWebhookConfig?.basicAuthPassword ??
+      request.app.locals?.scrapWebhookBasicAuthPassword;
+
+    if (!workflowUrl) {
+      const traceCtx = getTraceContext(request);
+      logEvent({
+        level: "error",
+        layer: "webhook",
+        message: "scrape_webhook_not_configured",
+        traceId: traceCtx.traceId,
+        span_id: traceCtx.spanId,
+        parent_span_id: traceCtx.parentSpanId,
+        detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAPE_WEBHOOK_URL (or N8N_WORKFLOW_URL) in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
+      });
+      sendError(request, response, 503, "Scrape workflow is not configured.");
+      return;
+    }
+
+    if (!basicAuthUser || !basicAuthPassword) {
+      const traceCtx = getTraceContext(request);
+      logEvent({
+        level: "error",
+        layer: "webhook",
+        message: "scrape_webhook_credentials_not_configured",
+        traceId: traceCtx.traceId,
+        span_id: traceCtx.spanId,
+        parent_span_id: traceCtx.parentSpanId,
+        detail: !basicAuthUser
+          ? `BASIC_AUTH_USER environment variable is not set in the selected *.${requestedEnvironment === "test" ? "test" : "prod"}.env file`
+          : `BASIC_AUTH_PWD environment variable is not set in the selected *.${requestedEnvironment === "test" ? "test" : "prod"}.env file`,
+      });
+      sendError(
+        request,
+        response,
+        503,
+        "Scrape workflow credentials are not configured.",
+      );
+      return;
+    }
+
+    const sourceId = parseProfileId(request.body?.sourceId);
+    if (sourceId === null) {
+      sendError(
+        request,
+        response,
+        400,
+        "sourceId in request body must be a positive integer.",
+      );
+      return;
+    }
+
+    try {
+      const traceContext = getTraceContext(request);
+      const sources = await resolveRepository(request).listSources();
+      const selectedSource =
+        sources.find((source) => source.id === sourceId) ?? null;
+      if (!selectedSource) {
+        sendError(request, response, 404, "Source not found.");
+        return;
+      }
+
+      // Send only the source snapshot JSON (sources_t.json) to n8n.
+      const webhookPayload =
+        selectedSource?.json &&
+        typeof selectedSource.json === "object" &&
+        !Array.isArray(selectedSource.json)
+          ? selectedSource.json
+          : {
+              id: selectedSource.id,
+              name: selectedSource.name,
+              description: selectedSource.description,
+              urls: selectedSource.urls,
+              rssFeeds: selectedSource.rssFeeds,
+            };
+
+      const workflowResponse = await fetch(workflowUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Basic ${encodeBasicAuth(
+            basicAuthUser,
+            basicAuthPassword,
+          )}`,
+          traceparent: traceContext.traceparent,
+        },
+        body: JSON.stringify(webhookPayload),
+      });
+
+      if (!workflowResponse.ok) {
+        let webhookResponseBody;
+        try {
+          webhookResponseBody = await workflowResponse.text();
+        } catch {
+          webhookResponseBody = "(could not read response body)";
+        }
+
+        logEvent({
+          level: "error",
+          layer: "webhook",
+          message: "scrape_webhook_trigger_failed",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          http_status_code: workflowResponse.status,
+          http_status_text: workflowResponse.statusText,
+          workflow_url: workflowUrl,
+          webhook_response_body: webhookResponseBody,
+        });
+
+        sendError(request, response, 502, "Failed to trigger scrape workflow.");
+        return;
+      }
+
+      response.status(202).json({ status: "accepted" });
+    } catch (error) {
+      const traceContext = getTraceContext(request);
+      logEvent({
+        level: "error",
+        layer: "webhook",
+        message: "scrape_webhook_trigger_error",
+        traceId: traceContext.traceId,
+        span_id: traceContext.spanId,
+        parent_span_id: traceContext.parentSpanId,
+        workflow_url: workflowUrl,
+        error_name: error instanceof Error ? error.name : "UnknownError",
+        error_message: error instanceof Error ? error.message : String(error),
+        error_stack: error instanceof Error ? error.stack : undefined,
+      });
+      sendError(request, response, 502, "Could not trigger scrape workflow.");
+    }
+  });
+
+  app.get("/api/profiles/:id/chats", async (request, response, next) => {
+    const profileId = parseProfileId(request.params.id);
+
+    if (profileId === null) {
+      sendError(
+        request,
+        response,
+        400,
+        "Profile id must be a positive integer.",
+      );
+      return;
+    }
+
+    try {
+      const chats =
+        await resolveRepository(request).getChatsByProfileId(profileId);
+      response.json(chats);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/profiles/:id/chat-history", async (request, response, next) => {
+    const profileId = parseProfileId(request.params.id);
+
+    if (profileId === null) {
+      sendError(
+        request,
+        response,
+        400,
+        "Profile id must be a positive integer.",
+      );
+      return;
+    }
+
+    const sessionIdQuery =
+      typeof request.query.sessionId === "string"
+        ? request.query.sessionId.trim()
+        : "";
+    const quality = parseOptionalInteger(request.query.quality);
+    const timePeriod = parseChatHistoryTimePeriod(request.query.timePeriod);
+    const role = parseChatHistoryRole(request.query.role);
+
+    if (request.query.quality !== undefined && quality === null) {
+      sendError(request, response, 400, "Quality must be an integer.");
+      return;
+    }
+
+    if (quality !== null && (quality < 1 || quality > 10)) {
+      sendError(request, response, 400, "Quality must be between 1 and 10.");
+      return;
+    }
+
+    if (timePeriod === null) {
+      sendError(
+        request,
+        response,
+        400,
+        "Time period must be one of: last_hour, last_day, last_week, last_month, all.",
+      );
+      return;
+    }
+
+    if (role === null) {
+      sendError(
+        request,
+        response,
+        400,
+        "Role must be one of: user, assistant, all.",
+      );
+      return;
+    }
+
+    const sinceTs = getChatHistorySinceTimestamp(timePeriod);
+
+    try {
+      const chats = await resolveRepository(request).listChatHistoryByProfileId(
+        profileId,
+        {
+          sessionIdQuery,
+          quality,
+          role,
+          sinceTs,
+          limit: 1000,
+        },
+      );
+      response.json(chats);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/chats/quick-reply", (_request, response) => {
+    response.json(QUICK_REPLY_CONFIG);
+  });
+
+  app.get("/api/chats/:id", async (request, response, next) => {
+    const chatId = parseProfileId(request.params.id);
+
+    if (chatId === null) {
+      sendError(request, response, 400, "Chat id must be a positive integer.");
+      return;
+    }
+
+    try {
+      const chat = await resolveRepository(request).getChat(chatId);
+
+      if (!chat) {
+        sendError(request, response, 404, "Chat message not found.");
+        return;
+      }
+
+      response.json(chat);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/chats/dispatch", async (request, response, next) => {
+    const traceContext = getTraceContext(request);
+
+    try {
+      const validationResult = validateChatMessageInput(request.body);
+
+      if (!validationResult.valid) {
+        logEvent({
+          level: "warn",
+          layer: "api",
+          message: "dispatch_validation_failed",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          validation_error: validationResult.error,
+        });
+        sendError(request, response, 400, validationResult.error);
+        return;
+      }
+
+      const requestedEnvironment = getRequestedEnvironment(request);
+      const environmentWebhookConfig =
+        request.app.locals?.chatbotWebhookByEnvironment?.[requestedEnvironment];
+
+      const workflowUrl =
+        environmentWebhookConfig?.webhookUrl ??
+        request.app.locals?.chatbotWebhookUrl;
+      const basicAuthUser =
+        environmentWebhookConfig?.basicAuthUser ??
+        request.app.locals?.chatbotWebhookBasicAuthUser;
+      const basicAuthPassword =
+        environmentWebhookConfig?.basicAuthPassword ??
+        request.app.locals?.chatbotWebhookBasicAuthPassword;
+
+      if (!workflowUrl) {
+        logEvent({
+          level: "error",
+          layer: "webhook",
+          message: "chatbot_webhook_not_configured",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAPE_CHATBOT_WEBHOOK_URL in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
+        });
+        sendError(
+          request,
+          response,
+          503,
+          "Chatbot workflow is not configured.",
+        );
+        return;
+      }
+
+      const repositoryInstance = resolveRepository(request);
+
+      const profiles = await repositoryInstance.listProfiles();
+      const selectedProfile =
+        profiles.find(
+          (profile) => profile.id === validationResult.value.profileId,
+        ) ?? null;
+
+      if (!selectedProfile) {
+        sendError(request, response, 404, "Profile not found.");
+        return;
+      }
+
+      const webhookPayload = {
+        sessionId: validationResult.value.sessionId,
+        message: enrichMessageWithProfileContext(
+          validationResult.value.message,
+        ),
+      };
+
+      const webhookHeaders = {
+        "content-type": "application/json",
+        traceparent: traceContext.traceparent,
+      };
+
+      if (basicAuthUser && basicAuthPassword) {
+        webhookHeaders.authorization = `Basic ${encodeBasicAuth(
+          basicAuthUser,
+          basicAuthPassword,
+        )}`;
+      }
+
+      const timeoutMs = Number(request.app.locals?.chatbotWebhookTimeoutMs);
+      const resolvedTimeoutMs =
+        Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60_000;
+      const abortController = new AbortController();
+      const timeoutHandle = setTimeout(() => {
+        abortController.abort();
+      }, resolvedTimeoutMs);
+
+      let workflowResponse;
+      try {
+        workflowResponse = await fetch(workflowUrl, {
+          method: "POST",
+          headers: webhookHeaders,
+          body: JSON.stringify(webhookPayload),
+          signal: abortController.signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          logEvent({
+            level: "error",
+            layer: "webhook",
+            message: "chatbot_webhook_timeout",
+            traceId: traceContext.traceId,
+            span_id: traceContext.spanId,
+            parent_span_id: traceContext.parentSpanId,
+            workflow_url: workflowUrl,
+            timeout_ms: resolvedTimeoutMs,
+          });
+
+          sendError(
+            request,
+            response,
+            504,
+            `Chatbot workflow timed out after ${Math.ceil(resolvedTimeoutMs / 1000)} seconds.`,
+          );
+          return;
+        }
+
+        throw error;
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+
+      logEvent({
+        level: "info",
+        layer: "webhook",
+        message: "chatbot_webhook_response_status",
+        traceId: traceContext.traceId,
+        span_id: traceContext.spanId,
+        parent_span_id: traceContext.parentSpanId,
+        http_status_code: workflowResponse.status,
+        http_status_text: workflowResponse.statusText,
+        is_ok: workflowResponse.ok,
+        workflow_url: workflowUrl,
+      });
+
+      if (!workflowResponse.ok) {
+        let webhookResponseBody;
+        try {
+          webhookResponseBody = await workflowResponse.text();
+        } catch {
+          webhookResponseBody = "(could not read response body)";
+        }
+
+        logEvent({
+          level: "error",
+          layer: "webhook",
+          message: "chatbot_webhook_trigger_failed",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          http_status_code: workflowResponse.status,
+          http_status_text: workflowResponse.statusText,
+          workflow_url: workflowUrl,
+          webhook_response_body: webhookResponseBody,
+        });
+
+        sendError(
+          request,
+          response,
+          502,
+          "Failed to trigger chatbot workflow.",
+        );
+        return;
+      }
+
+      // Dispatch endpoint requires synchronous response with answer.
+      // Accept both 200 OK and 202 Accepted as success (both can include response body).
+      if (workflowResponse.status === 202) {
+        logEvent({
+          level: "info",
+          layer: "webhook",
+          message: "chatbot_dispatch_async_accepted",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          detail:
+            "Webhook returned 202 Accepted. Processing response body for synchronous answer.",
+          http_status_code: workflowResponse.status,
+          workflow_url: workflowUrl,
+        });
+      } else if (workflowResponse.status !== 200) {
+        logEvent({
+          level: "error",
+          layer: "webhook",
+          message: "chatbot_dispatch_unexpected_status",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          detail: `Dispatch endpoint requires 200 or 202. Got ${workflowResponse.status} ${workflowResponse.statusText}`,
+          http_status_code: workflowResponse.status,
+          workflow_url: workflowUrl,
+        });
+
+        sendError(
+          request,
+          response,
+          502,
+          `Chatbot workflow returned unexpected status: ${workflowResponse.status} ${workflowResponse.statusText}`,
+        );
+        return;
+      }
+
+      let rawWebhookResponseBody = "";
+      try {
+        rawWebhookResponseBody = await workflowResponse.text();
+      } catch {
+        rawWebhookResponseBody = "";
+      }
+
+      const normalizedWebhookBody = rawWebhookResponseBody.trim();
+
+      let responseBody = null;
+      if (normalizedWebhookBody) {
+        try {
+          responseBody = JSON.parse(normalizedWebhookBody);
+        } catch {
+          responseBody = null;
+        }
+      }
+
+      logEvent({
+        level: "debug",
+        layer: "webhook",
+        message: "chatbot_webhook_response_received",
+        traceId: traceContext.traceId,
+        span_id: traceContext.spanId,
+        parent_span_id: traceContext.parentSpanId,
+        http_status_code: workflowResponse.status,
+        raw_response_body: normalizedWebhookBody,
+        parsed_response_body: responseBody,
+      });
+
+      const agentResponseFromJson = findStringInJson(responseBody, [
+        "agentResponse",
+        "answer",
+        "response",
+        "output",
+        "text",
+        "message",
+      ]);
+
+      const agentResponse =
+        agentResponseFromJson && agentResponseFromJson.trim().length > 0
+          ? agentResponseFromJson
+          : normalizedWebhookBody && responseBody === null
+            ? normalizedWebhookBody
+            : null;
+      const executionId = findStringInJson(responseBody, [
+        "executionId",
+        "execution_id",
+        "id",
+      ]);
+
+      // Check if n8n response indicates an error
+      const isErrorResponse =
+        responseBody &&
+        typeof responseBody === "object" &&
+        (responseBody.error === true ||
+          (typeof responseBody.httpStatus === "number" &&
+            responseBody.httpStatus >= 400));
+
+      logEvent({
+        level: "info",
+        layer: "webhook",
+        message: "chatbot_dispatch_response_extracted",
+        traceId: traceContext.traceId,
+        span_id: traceContext.spanId,
+        parent_span_id: traceContext.parentSpanId,
+        extracted_agent_response: agentResponse,
+        extracted_execution_id: executionId,
+        is_error_response: isErrorResponse,
+        response_body_keys: responseBody
+          ? Object.keys(responseBody)
+          : undefined,
+      });
+
+      if (isErrorResponse) {
+        logEvent({
+          level: "error",
+          layer: "webhook",
+          message: "chatbot_webhook_error_response",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          workflow_url: workflowUrl,
+          error_type: responseBody.errorType,
+          error_message: responseBody.message,
+          http_status: responseBody.httpStatus,
+          raw_response_body: normalizedWebhookBody,
+        });
+
+        sendError(
+          request,
+          response,
+          502,
+          `Chatbot workflow error: ${responseBody.message || responseBody.errorType || "Unknown error"}`,
+        );
+        return;
+      }
+
+      if (!agentResponse || agentResponse.trim().length === 0) {
+        logEvent({
+          level: "error",
+          layer: "webhook",
+          message: "chatbot_webhook_missing_answer",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          workflow_url: workflowUrl,
+          execution_id: executionId,
+          raw_response_body: normalizedWebhookBody,
+        });
+
+        sendError(
+          request,
+          response,
+          502,
+          "Chatbot webhook did not return a synchronous answer.",
+        );
+        return;
+      }
+
+      logEvent({
+        level: "info",
+        layer: "api",
+        message: "chatbot_dispatch_success",
+        traceId: traceContext.traceId,
+        span_id: traceContext.spanId,
+        parent_span_id: traceContext.parentSpanId,
+        session_id: validationResult.value.sessionId,
+      });
+
+      response.status(200).json({
+        sessionId: validationResult.value.sessionId,
+        message: validationResult.value.message,
+        agentResponse,
+        executionId,
+        status: "completed",
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/chats", async (request, response, next) => {
+    const validationResult = validateChatMessageInput(request.body);
+
+    if (!validationResult.valid) {
+      sendError(request, response, 400, validationResult.error);
+      return;
+    }
+
+    const requestedEnvironment = getRequestedEnvironment(request);
+    const environmentWebhookConfig =
+      request.app.locals?.chatbotWebhookByEnvironment?.[requestedEnvironment];
+
+    const workflowUrl =
+      environmentWebhookConfig?.webhookUrl ??
+      request.app.locals?.chatbotWebhookUrl;
+    const basicAuthUser =
+      environmentWebhookConfig?.basicAuthUser ??
+      request.app.locals?.chatbotWebhookBasicAuthUser;
+    const basicAuthPassword =
+      environmentWebhookConfig?.basicAuthPassword ??
+      request.app.locals?.chatbotWebhookBasicAuthPassword;
+
+    if (!workflowUrl) {
+      const traceCtx = getTraceContext(request);
+      logEvent({
+        level: "error",
+        layer: "webhook",
+        message: "chatbot_webhook_not_configured",
+        traceId: traceCtx.traceId,
+        span_id: traceCtx.spanId,
+        parent_span_id: traceCtx.parentSpanId,
+        detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAPE_CHATBOT_WEBHOOK_URL in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
+      });
+      sendError(request, response, 503, "Chatbot workflow is not configured.");
+      return;
+    }
+
+    try {
+      const traceContext = getTraceContext(request);
+      const repositoryInstance = resolveRepository(request);
+
+      const profiles = await repositoryInstance.listProfiles();
+      const selectedProfile =
+        profiles.find(
+          (profile) => profile.id === validationResult.value.profileId,
+        ) ?? null;
+
+      if (!selectedProfile) {
+        sendError(request, response, 404, "Profile not found.");
+        return;
+      }
+
+      const createdChat = await repositoryInstance.createChat(
+        validationResult.value,
+        traceContext.traceId,
+      );
+
+      const webhookPayload = {
+        sessionId: validationResult.value.sessionId,
+        message: enrichMessageWithProfileContext(
+          validationResult.value.message,
+        ),
+      };
+
+      const webhookHeaders = {
+        "content-type": "application/json",
+        traceparent: traceContext.traceparent,
+      };
+
+      if (basicAuthUser && basicAuthPassword) {
+        webhookHeaders.authorization = `Basic ${encodeBasicAuth(
+          basicAuthUser,
+          basicAuthPassword,
+        )}`;
+      }
+
+      const timeoutMs = Number(request.app.locals?.chatbotWebhookTimeoutMs);
+      const resolvedTimeoutMs =
+        Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60_000;
+      const abortController = new AbortController();
+      const timeoutHandle = setTimeout(() => {
+        abortController.abort();
+      }, resolvedTimeoutMs);
+
+      let workflowResponse;
+      try {
+        workflowResponse = await fetch(workflowUrl, {
+          method: "POST",
+          headers: webhookHeaders,
+          body: JSON.stringify(webhookPayload),
+          signal: abortController.signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          await repositoryInstance.updateChatResponse(
+            createdChat.id,
+            `Chatbot workflow timed out after ${Math.ceil(resolvedTimeoutMs / 1000)} seconds.`,
+            null,
+            "failed",
+          );
+
+          logEvent({
+            level: "error",
+            layer: "webhook",
+            message: "chatbot_webhook_timeout",
+            traceId: traceContext.traceId,
+            span_id: traceContext.spanId,
+            parent_span_id: traceContext.parentSpanId,
+            workflow_url: workflowUrl,
+            timeout_ms: resolvedTimeoutMs,
+          });
+
+          sendError(
+            request,
+            response,
+            504,
+            `Chatbot workflow timed out after ${Math.ceil(resolvedTimeoutMs / 1000)} seconds.`,
+          );
+          return;
+        }
+
+        throw error;
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+
+      if (!workflowResponse.ok) {
+        let webhookResponseBody;
+        try {
+          webhookResponseBody = await workflowResponse.text();
+        } catch {
+          webhookResponseBody = "(could not read response body)";
+        }
+
+        await repositoryInstance.updateChatResponse(
+          createdChat.id,
+          "Failed to trigger chatbot workflow.",
+          null,
+          "failed",
+        );
+
+        logEvent({
+          level: "error",
+          layer: "webhook",
+          message: "chatbot_webhook_trigger_failed",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          http_status_code: workflowResponse.status,
+          http_status_text: workflowResponse.statusText,
+          workflow_url: workflowUrl,
+          webhook_response_body: webhookResponseBody,
+        });
+
+        sendError(
+          request,
+          response,
+          502,
+          "Failed to trigger chatbot workflow.",
+        );
+        return;
+      }
+
+      let rawWebhookResponseBody = "";
+      try {
+        rawWebhookResponseBody = await workflowResponse.text();
+      } catch {
+        rawWebhookResponseBody = "";
+      }
+
+      const normalizedWebhookBody = rawWebhookResponseBody.trim();
+
+      let responseBody = null;
+      if (normalizedWebhookBody) {
+        try {
+          responseBody = JSON.parse(normalizedWebhookBody);
+        } catch {
+          responseBody = null;
+        }
+      }
+
+      const agentResponseFromJson = findStringInJson(responseBody, [
+        "agentResponse",
+        "answer",
+        "response",
+        "output",
+        "text",
+        "message",
+      ]);
+
+      const agentResponse =
+        agentResponseFromJson && agentResponseFromJson.trim().length > 0
+          ? agentResponseFromJson
+          : normalizedWebhookBody && responseBody === null
+            ? normalizedWebhookBody
+            : null;
+      const executionId = findStringInJson(responseBody, [
+        "executionId",
+        "execution_id",
+        "id",
+      ]);
+
+      if (!agentResponse || agentResponse.trim().length === 0) {
+        await repositoryInstance.updateChatResponse(
+          createdChat.id,
+          "Chatbot webhook did not return a synchronous answer.",
+          executionId,
+          "failed",
+        );
+
+        logEvent({
+          level: "error",
+          layer: "webhook",
+          message: "chatbot_webhook_missing_answer",
+          traceId: traceContext.traceId,
+          span_id: traceContext.spanId,
+          parent_span_id: traceContext.parentSpanId,
+          workflow_url: workflowUrl,
+          execution_id: executionId,
+        });
+
+        sendError(
+          request,
+          response,
+          502,
+          "Chatbot webhook did not return a synchronous answer.",
+        );
+        return;
+      }
+
+      const updatedChat = await repositoryInstance.updateChatResponse(
+        createdChat.id,
+        agentResponse,
+        executionId,
+        "completed",
+      );
+
+      response.status(201).json(updatedChat ?? createdChat);
+    } catch (error) {
+      next(error);
     }
   });
 
@@ -826,8 +2096,9 @@ export function createNewsScraperApi({
       return;
     }
 
-    if (!Array.isArray(channels)) {
-      sendError(request, response, 400, "Channels must be an array.");
+    const channelsValidation = validateNotificationChannels(channels);
+    if (!channelsValidation.valid) {
+      sendError(request, response, 400, channelsValidation.error);
       return;
     }
 
@@ -870,8 +2141,9 @@ export function createNewsScraperApi({
       return;
     }
 
-    if (!Array.isArray(channels)) {
-      sendError(request, response, 400, "Channels must be an array.");
+    const channelsValidation = validateNotificationChannels(channels);
+    if (!channelsValidation.valid) {
+      sendError(request, response, 400, channelsValidation.error);
       return;
     }
 

@@ -12,9 +12,57 @@
  */
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { createHash } from "node:crypto";
+import { createServer } from "node:http";
+import test, { after, before } from "node:test";
+import { createNewsScraperApi } from "./src/app.mjs";
+import { createMemoryProfilesRepository } from "./src/memory-repository.mjs";
 
-const apiBaseUrl = process.env.API_BASE_URL || "http://127.0.0.1:4300";
+function sha256Hex(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+let apiBaseUrl = process.env.API_BASE_URL || "";
+let testServer;
+
+before(async () => {
+  if (apiBaseUrl) {
+    return;
+  }
+
+  const repository = createMemoryProfilesRepository();
+  await repository.initialize();
+
+  const api = createNewsScraperApi({ repository });
+  testServer = createServer(api);
+
+  await new Promise((resolve) => testServer.listen(0, "127.0.0.1", resolve));
+
+  const address = testServer.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine seed test server address.");
+  }
+
+  apiBaseUrl = `http://127.0.0.1:${address.port}`;
+});
+
+after(async () => {
+  if (!testServer) {
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    testServer.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+});
 
 async function fetchJson(url) {
   const response = await fetch(url);
@@ -35,10 +83,40 @@ test("exactly 4 profiles are seeded", async () => {
   );
 });
 
-test("AI LLM profile exists", async () => {
+test("AI Demo profile exists", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
+  const profile = profiles.find((p) => p.name === "AI Demo");
+  assert.ok(profile, 'Profile "AI Demo" not found');
+  assert.equal(
+    profile.description,
+    "A profile AI news demonstration",
+    "AI Demo description does not match the instruction-defined seed baseline",
+  );
+  assert.equal(
+    profile.systemPrompt,
+    "You are an AI news assistant who focuses on news related to the tags and for the roles provided in this profile. You provide concise and informative summaries of the latest developments in the AI field, tailored to the interests of the users linked to this profile.",
+    "AI Demo systemPrompt does not match the instruction-defined seed baseline",
+  );
+  assert.deepEqual(profile.roles, [
+    "Solution Architect",
+    "Software Engineer",
+    "Product Manager",
+  ]);
+  for (const requiredTag of [
+    "llm",
+    "openai",
+    "claude",
+    "anthropic",
+    "meta",
+    "agentic AI",
+    "MCP",
+    "RAG",
+  ]) {
+    assert.ok(
+      (profile.tags ?? []).includes(requiredTag),
+      `AI Demo missing tag "${requiredTag}", found: ${JSON.stringify(profile.tags ?? [])}`,
+    );
+  }
 });
 
 test("Error Test Profile exists", async () => {
@@ -60,18 +138,93 @@ test("Model Releases profile exists", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Per-profile: URLs, RSS, tags, roles counts (each must have >= 3)
+// Source baseline
 // ---------------------------------------------------------------------------
 
-// URL and RSS counts only apply to profiles with useCustomSources=true
-for (const profileName of ["AI LLM", "Agent Ecosystem", "Model Releases"]) {
-  test(`${profileName}: has at least 3 URLs`, async () => {
+test("at least 3 sources are seeded", async () => {
+  const sources = await fetchJson(`${apiBaseUrl}/api/sources`);
+  assert.ok(
+    sources.length >= 3,
+    `Expected at least 3 sources, got ${sources.length}`,
+  );
+});
+
+test("AI Demo source exists with required RSS set", async () => {
+  const sources = await fetchJson(`${apiBaseUrl}/api/sources`);
+  const source = sources.find((entry) => entry.name === "AI Demo");
+  assert.ok(source, 'Source "AI Demo" not found');
+  assert.equal(
+    source.description,
+    "A source for AI news demonstration.",
+    "AI Demo source description does not match the instruction-defined seed baseline",
+  );
+  assert.deepEqual(
+    (source.urls ?? []).map((entry) => entry.url),
+    ["https://ai.meta.com/blog/"],
+    `"AI Demo" URLs do not match instruction-defined baseline`,
+  );
+
+  const feeds = new Set((source.rssFeeds ?? []).map((f) => f.feedUrl));
+  for (const requiredFeed of [
+    "https://openai.com/news/rss.xml",
+    "https://huggingface.co/blog/feed.xml",
+    "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss",
+  ]) {
+    assert.ok(
+      feeds.has(requiredFeed),
+      `AI Demo source missing RSS "${requiredFeed}", found: ${JSON.stringify(Array.from(feeds))}`,
+    );
+  }
+});
+
+test("AI Demo notification profile exists with configured email channel", async () => {
+  const notificationProfiles = await fetchJson(
+    `${apiBaseUrl}/api/notification-profiles`,
+  );
+  const profile = notificationProfiles.find(
+    (entry) => entry.name === "AI Demo",
+  );
+  assert.ok(profile, 'Notification profile "AI Demo" not found');
+  assert.equal(
+    profile.description,
+    "AI Demo notification channel for development.",
+    "AI Demo notification profile description does not match the instruction-defined seed baseline",
+  );
+  assert.equal(
+    (profile.channels ?? []).length,
+    1,
+    `AI Demo notification profile expected 1 channel, got ${(profile.channels ?? []).length}`,
+  );
+  assert.deepEqual(profile.channels[0]?.emailAddresses ?? [], [
+    "robert.bernhard71@gmail.com",
+  ]);
+});
+
+// ---------------------------------------------------------------------------
+// Per-profile: URLs, RSS, tags, roles counts
+// ---------------------------------------------------------------------------
+
+const expectedUrlCountByProfile = {
+  "AI Demo": 1,
+  "Agent Ecosystem": 3,
+  "Model Releases": 3,
+  "Error Test Profile": 3,
+};
+
+for (const profileName of [
+  "AI Demo",
+  "Agent Ecosystem",
+  "Model Releases",
+  "Error Test Profile",
+]) {
+  test(`${profileName}: has expected URL count`, async () => {
     const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
     const profile = profiles.find((p) => p.name === profileName);
     assert.ok(profile, `Profile "${profileName}" not found`);
-    assert.ok(
-      (profile.urls ?? []).length >= 3,
-      `"${profileName}" expected >= 3 URLs, got ${(profile.urls ?? []).length}`,
+    assert.equal(
+      (profile.urls ?? []).length,
+      expectedUrlCountByProfile[profileName],
+      `"${profileName}" expected ${expectedUrlCountByProfile[profileName]} URLs, got ${(profile.urls ?? []).length}`,
     );
   });
 
@@ -117,130 +270,98 @@ for (const profileName of ["AI LLM", "Agent Ecosystem", "Model Releases"]) {
       3,
       `"${profileName}" expected 3 news items, got ${news.length}`,
     );
+
+    for (const item of news) {
+      assert.match(
+        item.newsId,
+        /^[0-9a-f]{64}$/,
+        `"${profileName}" expected SHA-256 newsId, got ${item.newsId}`,
+      );
+      assert.equal(
+        item.newsId,
+        sha256Hex(`${item.link}${item.title}`),
+        `"${profileName}" newsId does not match SHA-256(link + title) for "${item.title}"`,
+      );
+    }
   });
 }
 
-// Error Test Profile has no custom sources so no URL/RSS checks, but still needs tags, roles, and news
-for (const check of ["tags", "roles"]) {
-  test(`Error Test Profile: has at least 3 ${check}`, async () => {
-    const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-    const profile = profiles.find((p) => p.name === "Error Test Profile");
-    assert.ok(profile, 'Profile "Error Test Profile" not found');
-    assert.ok(
-      (profile[check] ?? []).length >= 3,
-      `"Error Test Profile" expected >= 3 ${check}, got ${(profile[check] ?? []).length}`,
-    );
-  });
-}
+// ---------------------------------------------------------------------------
+// AI Demo profile: specific URLs and RSS required by copilot instructions
+// ---------------------------------------------------------------------------
 
-test("Error Test Profile: has exactly 3 news items", async () => {
+test("AI Demo profile contains https://ai.meta.com/blog/ URL", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "Error Test Profile");
-  assert.ok(profile, 'Profile "Error Test Profile" not found');
-  const news = await fetchJson(
-    `${apiBaseUrl}/api/news?profileId=${profile.id}`,
+  const profile = profiles.find((p) => p.name === "AI Demo");
+  assert.ok(profile, 'Profile "AI Demo" not found');
+  const urls = (profile.urls ?? []).map((u) => u.url);
+  assert.ok(
+    urls.length >= 3,
+    `AI Demo expected >= 3 URLs, found: ${JSON.stringify(urls)}`,
   );
-  assert.equal(
-    news.length,
-    3,
-    `"Error Test Profile" expected 3 news items, got ${news.length}`,
+  assert.ok(
+    urls.includes("https://ai.meta.com/blog/"),
+    `AI Demo missing Meta AI blog URL, found: ${JSON.stringify(urls)}`,
   );
 });
 
-// ---------------------------------------------------------------------------
-// AI LLM profile: specific URLs and RSS required by copilot instructions
-// ---------------------------------------------------------------------------
-
-test("AI LLM profile contains https://invalid/ URL", async () => {
+test("AI Demo profile contains https://openai.com/news/rss.xml RSS feed", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
-  const urls = (profile.urls ?? []).map((u) => u.url);
+  const profile = profiles.find((p) => p.name === "AI Demo");
+  assert.ok(profile, 'Profile "AI Demo" not found');
+  const feeds = (profile.rssFeeds ?? []).map((f) => f.feedUrl);
   assert.ok(
-    urls.includes("https://invalid/"),
-    `AI LLM expected URL "https://invalid/", found: ${JSON.stringify(urls)}`,
+    feeds.includes("https://openai.com/news/rss.xml"),
+    `AI Demo missing OpenAI RSS feed, found: ${JSON.stringify(feeds)}`,
   );
 });
 
-test("AI LLM profile contains https://www.technologyreview.com/topic/artificial-intelligence/ URL", async () => {
+test("AI Demo profile contains https://huggingface.co/blog/feed.xml RSS feed", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
-  const urls = (profile.urls ?? []).map((u) => u.url);
+  const profile = profiles.find((p) => p.name === "AI Demo");
+  assert.ok(profile, 'Profile "AI Demo" not found');
+  const feeds = (profile.rssFeeds ?? []).map((f) => f.feedUrl);
   assert.ok(
-    urls.includes(
-      "https://www.technologyreview.com/topic/artificial-intelligence/",
+    feeds.includes("https://huggingface.co/blog/feed.xml"),
+    `AI Demo missing Hugging Face RSS feed, found: ${JSON.stringify(feeds)}`,
+  );
+});
+
+test("AI Demo profile contains anthropic_news_rss RSS feed", async () => {
+  const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
+  const profile = profiles.find((p) => p.name === "AI Demo");
+  assert.ok(profile, 'Profile "AI Demo" not found');
+  const feeds = (profile.rssFeeds ?? []).map((f) => f.feedUrl);
+  assert.ok(
+    feeds.includes(
+      "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.xml",
     ),
-    `AI LLM missing MIT Technology Review URL, found: ${JSON.stringify(urls)}`,
+    `AI Demo missing Anthropic RSS feed, found: ${JSON.stringify(feeds)}`,
   );
 });
 
-test("AI LLM profile contains https://www.unite.ai/ URL", async () => {
+test("AI Demo profile tags include llm, openai, claude", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
-  const urls = (profile.urls ?? []).map((u) => u.url);
-  assert.ok(
-    urls.includes("https://www.unite.ai/"),
-    `AI LLM missing unite.ai URL, found: ${JSON.stringify(urls)}`,
-  );
-});
-
-test("AI LLM profile contains https://aiuniverseexplorer.com/ai-news-aggregator/ URL", async () => {
-  const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
-  const urls = (profile.urls ?? []).map((u) => u.url);
-  assert.ok(
-    urls.includes("https://aiuniverseexplorer.com/ai-news-aggregator/"),
-    `AI LLM missing aiuniverseexplorer URL, found: ${JSON.stringify(urls)}`,
-  );
-});
-
-test("AI LLM profile contains https://invalid/rss.xml RSS feed", async () => {
-  const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
-  const feeds = (profile.rssFeeds ?? []).map((f) => f.feedUrl);
-  assert.ok(
-    feeds.includes("https://invalid/rss.xml"),
-    `AI LLM expected RSS "https://invalid/rss.xml", found: ${JSON.stringify(feeds)}`,
-  );
-});
-
-test("AI LLM profile contains https://planet-ai.net/rss.xml RSS feed", async () => {
-  const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
-  const feeds = (profile.rssFeeds ?? []).map((f) => f.feedUrl);
-  assert.ok(
-    feeds.includes("https://planet-ai.net/rss.xml"),
-    `AI LLM missing Planet AI RSS feed, found: ${JSON.stringify(feeds)}`,
-  );
-});
-
-test("AI LLM profile tags include llm, anthropic, claude", async () => {
-  const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
+  const profile = profiles.find((p) => p.name === "AI Demo");
+  assert.ok(profile, 'Profile "AI Demo" not found');
   const tags = profile.tags ?? [];
-  for (const expected of ["llm", "anthropic", "claude"]) {
+  for (const expected of ["llm", "openai", "claude"]) {
     assert.ok(
       tags.includes(expected),
-      `AI LLM missing tag "${expected}", found: ${JSON.stringify(tags)}`,
+      `AI Demo missing tag "${expected}", found: ${JSON.stringify(tags)}`,
     );
   }
 });
 
-test("AI LLM profile roles include Solution Architect and Software Engineer", async () => {
+test("AI Demo profile roles include Solution Architect and Software Engineer", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
-  const profile = profiles.find((p) => p.name === "AI LLM");
-  assert.ok(profile, 'Profile "AI LLM" not found');
+  const profile = profiles.find((p) => p.name === "AI Demo");
+  assert.ok(profile, 'Profile "AI Demo" not found');
   const roles = profile.roles ?? [];
   for (const expected of ["Solution Architect", "Software Engineer"]) {
     assert.ok(
       roles.includes(expected),
-      `AI LLM missing role "${expected}", found: ${JSON.stringify(roles)}`,
+      `AI Demo missing role "${expected}", found: ${JSON.stringify(roles)}`,
     );
   }
 });
@@ -288,17 +409,17 @@ test("Error Test Profile errors have deterministic trace IDs", async () => {
 // Notification channel
 // ---------------------------------------------------------------------------
 
-test("Test Channel notification profile exists with correct email", async () => {
+test("AI Demo notification profile exists with correct email", async () => {
   const notifProfiles = await fetchJson(
     `${apiBaseUrl}/api/notification-profiles`,
   );
-  const channel = notifProfiles.find((n) => n.name === "Test Channel");
-  assert.ok(channel, '"Test Channel" notification profile not found');
-  const emails = (channel.channels ?? [])
-    .filter((c) => c.channelType === "email")
-    .flatMap((c) => c.emailAddresses ?? []);
+  const channel = notifProfiles.find((n) => n.name === "AI Demo");
+  assert.ok(channel, '"AI Demo" notification profile not found');
+  const emails = (channel.channels ?? []).flatMap((c) =>
+    Array.isArray(c.emailAddresses) ? c.emailAddresses : [],
+  );
   assert.ok(
     emails.includes("robert.bernhard71@gmail.com"),
-    `Test Channel missing expected email address, found: ${JSON.stringify(emails)}`,
+    `AI Demo notification profile missing expected email address, found: ${JSON.stringify(emails)}`,
   );
 });

@@ -1,5 +1,34 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("news-scrapper.environment", "production");
+    window.sessionStorage.setItem(
+      "news-scrapper.session.environment-selected",
+      "true",
+    );
+  });
+});
+
+async function openProfilesManagementTab(
+  page: import("@playwright/test").Page,
+) {
+  await page.getByRole("tab", { name: "Profiles" }).click();
+}
+
+async function selectFirstAvailableSource(
+  dialog: import("@playwright/test").Locator,
+) {
+  const sourceSelect = dialog
+    .locator("label.field:has-text('Source') select")
+    .first();
+  const sourceOptions = sourceSelect.locator("option");
+
+  if ((await sourceOptions.count()) > 1) {
+    await sourceSelect.selectOption({ index: 1 });
+  }
+}
+
 test("entry page renders News Scraper and logo", async ({ page }) => {
   await page.goto("/");
 
@@ -30,7 +59,7 @@ test("menus navigate to Profiles, Chatbot, and News pages", async ({
   await expect(page.getByRole("heading", { name: /News/ })).toBeVisible();
 });
 
-test("AI LLM profile is selected by default when available", async ({
+test("AI Demo profile is selected by default when available", async ({
   page,
 }) => {
   const profilesResponse = [
@@ -47,7 +76,7 @@ test("AI LLM profile is selected by default when available", async ({
     },
     {
       id: 7,
-      name: "AI LLM",
+      name: "AI Demo",
       description: "",
       useCustomSources: false,
       tags: [],
@@ -87,7 +116,7 @@ test("AI LLM profile is selected by default when available", async ({
   await page.goto("/");
 
   await expect(page.locator(".profile-combobox-input").first()).toHaveValue(
-    "AI LLM",
+    "AI Demo",
   );
 });
 
@@ -215,6 +244,7 @@ test("news page supports keyword search and favorites filtering", async ({
 
 test("add profile dialog opens as a modal and can close", async ({ page }) => {
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   await page.getByRole("button", { name: "Add profile" }).click();
 
@@ -232,6 +262,7 @@ test("profile form shows english validation message for missing mandatory fields
   page,
 }) => {
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   await page.getByRole("button", { name: "Add profile" }).click();
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
@@ -241,6 +272,97 @@ test("profile form shows english validation message for missing mandatory fields
   await expect(addDialog.getByRole("alert")).toContainText(
     "Profile name is required.",
   );
+});
+
+test("chatbot voice input language defaults to browser locale and supports german and english", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "";
+      onresult = null;
+      onend = null;
+      onerror = null;
+
+      constructor() {
+        (window as any).__mockRecognition = this;
+      }
+
+      start() {}
+
+      stop() {}
+    }
+
+    Object.defineProperty(window.navigator, "language", {
+      configurable: true,
+      get: () => "de-DE",
+    });
+
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+  });
+
+  const profilesResponse = [
+    {
+      id: 7,
+      name: "AI Demo",
+      description: "",
+      useCustomSources: false,
+      tags: [],
+      urls: [],
+      rssFeeds: [],
+      notificationChannelIds: [],
+      notificationProfileId: null,
+    },
+  ];
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(profilesResponse),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.route("**/api/notification-profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.goto("/chatbot");
+  await expect(page.getByRole("heading", { name: "Chatbot" })).toBeVisible();
+
+  const voiceLanguageSelect = page.getByLabel("Voice input language");
+
+  await expect(voiceLanguageSelect).toHaveValue("de-DE");
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).__mockRecognition?.lang ?? null),
+    )
+    .toBe("de-DE");
+
+  await voiceLanguageSelect.selectOption("en-US");
+
+  await expect(voiceLanguageSelect).toHaveValue("en-US");
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).__mockRecognition?.lang ?? null),
+    )
+    .toBe("en-US");
 });
 
 test("user can add profile in dialog with URL and multiple RSS entries", async ({
@@ -293,6 +415,7 @@ test("user can add profile in dialog with URL and multiple RSS entries", async (
   });
 
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   await page.getByRole("button", { name: "Add profile" }).click();
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
@@ -302,23 +425,7 @@ test("user can add profile in dialog with URL and multiple RSS entries", async (
     .getByLabel("Profile description")
     .fill("Tracks agent platform and model release updates.");
 
-  await addDialog.getByLabel("Custom").check();
-
-  await addDialog.getByLabel("Source URL 1").fill("https://example.com/agents");
-  await addDialog
-    .getByLabel("Source URL description 1")
-    .fill("Vendor announcements");
-
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/feed.xml");
-  await addDialog.getByLabel("RSS title 1").fill("Agent Feed");
-  await addDialog.getByRole("button", { name: "Add RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 2")
-    .fill("https://example.com/feed-2.xml");
-  await addDialog.getByLabel("RSS title 2").fill("Agent Feed Secondary");
+  await selectFirstAvailableSource(addDialog);
 
   await addDialog.getByRole("button", { name: "Save profile" }).click();
 
@@ -333,7 +440,7 @@ test("user can add profile in dialog with URL and multiple RSS entries", async (
   ).toHaveCount(0);
 });
 
-test("default AI mode hides URL and RSS editors and allows save", async ({
+test("source based profile form allows save without legacy custom fields", async ({
   page,
 }) => {
   const profiles: Array<Record<string, unknown>> = [];
@@ -383,38 +490,14 @@ test("default AI mode hides URL and RSS editors and allows save", async ({
   });
 
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   await page.getByRole("button", { name: "Add profile" }).click();
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
 
   await addDialog.getByLabel("Profile name").fill("AI Suggested Sources");
-  await expect(addDialog.getByLabel("Custom")).not.toBeChecked();
-  await expect(addDialog.getByRole("button", { name: "Add URL" })).toHaveCount(
-    0,
-  );
-  await expect(addDialog.getByLabel("Source URL 1")).toHaveCount(0);
-
-  await addDialog.getByLabel("Custom").check();
-  await expect(
-    addDialog.getByRole("button", { name: "Add URL" }),
-  ).toBeVisible();
-  await expect(addDialog.getByLabel("Source URL 1")).toBeVisible();
-
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog.getByLabel("Custom").uncheck();
-  await expect(addDialog.getByRole("button", { name: "Add RSS" })).toHaveCount(
-    0,
-  );
-  await expect(addDialog.getByLabel("RSS feed URL 1")).toHaveCount(0);
-
-  await addDialog.getByLabel("Custom").check();
-  await expect(
-    addDialog.getByRole("button", { name: "Add RSS" }),
-  ).toBeVisible();
-  await expect(addDialog.getByLabel("RSS feed URL 1")).toBeVisible();
-
-  // Uncheck custom mode before saving (verify default AI mode allows save)
-  await addDialog.getByLabel("Custom").uncheck();
+  await expect(addDialog.getByLabel("Custom")).toHaveCount(0);
+  await selectFirstAvailableSource(addDialog);
 
   await addDialog.getByRole("button", { name: "Save profile" }).click();
 
@@ -430,44 +513,23 @@ test("default AI mode hides URL and RSS editors and allows save", async ({
   ).toBeVisible();
 });
 
-test("disabling custom mode confirms and clears URL and RSS entries", async ({
+test("profile form uses source selector instead of legacy custom/url/rss controls", async ({
   page,
 }) => {
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   await page.getByRole("button", { name: "Add profile" }).click();
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
 
   await addDialog.getByLabel("Profile name").fill("Clear Sources On Disable");
-  await addDialog.getByLabel("Custom").check();
-  await addDialog
-    .getByLabel("Source URL 1")
-    .fill("https://example.com/preserved-before-disable");
-
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/preserved-before-disable.xml");
-
-  page.once("dialog", (dialog) => dialog.accept());
-  await addDialog.getByLabel("Custom").uncheck();
-
-  await expect(addDialog.getByRole("button", { name: "Add RSS" })).toHaveCount(
-    0,
-  );
-  await expect(addDialog.getByLabel("RSS feed URL 1")).toHaveCount(0);
-
-  await addDialog.getByRole("tab", { name: "URLS" }).click();
-  await expect(addDialog.getByRole("button", { name: "Add URL" })).toHaveCount(
-    0,
-  );
+  await expect(addDialog.getByLabel("Custom")).toHaveCount(0);
+  await expect(addDialog.getByRole("tab", { name: "SOURCE" })).toBeVisible();
+  await expect(
+    addDialog.locator("label.field:has-text('Source') select").first(),
+  ).toBeVisible();
   await expect(addDialog.getByLabel("Source URL 1")).toHaveCount(0);
-
-  await addDialog.getByLabel("Custom").check();
-  await expect(addDialog.getByLabel("Source URL 1")).toHaveValue("");
-
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await expect(addDialog.getByLabel("RSS feed URL 1")).toHaveValue("");
+  await expect(addDialog.getByLabel("RSS feed URL 1")).toHaveCount(0);
 });
 
 test("profile save error shows backend trace ID", async ({ page }) => {
@@ -490,10 +552,12 @@ test("profile save error shows backend trace ID", async ({ page }) => {
   });
 
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
   await page.getByRole("button", { name: "Add profile" }).click();
 
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
   await addDialog.getByLabel("Profile name").fill("Trace Test Profile");
+  await selectFirstAvailableSource(addDialog);
   await addDialog.getByRole("button", { name: "Save profile" }).click();
 
   await expect(addDialog.getByRole("alert")).toContainText(
@@ -505,20 +569,13 @@ test("user can add unique tags and remove them directly in the tags tab", async 
   page,
 }) => {
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   await page.getByRole("button", { name: "Add profile" }).click();
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
 
   await addDialog.getByLabel("Profile name").fill("Tagged Profile");
-  await addDialog.getByLabel("Custom").check();
-  await addDialog
-    .getByLabel("Source URL 1")
-    .fill("https://example.com/tagged-profile");
-
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/tagged-profile.xml");
+  await selectFirstAvailableSource(addDialog);
 
   await addDialog.getByRole("tab", { name: "TAGS" }).click();
   const tagInput = addDialog.getByLabel("Add tag");
@@ -562,20 +619,13 @@ test("user can add unique roles and remove them directly in the roles tab", asyn
   page,
 }) => {
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   await page.getByRole("button", { name: "Add profile" }).click();
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
 
   await addDialog.getByLabel("Profile name").fill("Role Filter Profile");
-  await addDialog.getByLabel("Custom").check();
-  await addDialog
-    .getByLabel("Source URL 1")
-    .fill("https://example.com/role-filter-profile");
-
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/role-filter-profile.xml");
+  await selectFirstAvailableSource(addDialog);
 
   await addDialog.getByRole("tab", { name: "ROLES" }).click();
   const roleInput = addDialog.getByLabel("Add role");
@@ -616,7 +666,139 @@ test("user can add unique roles and remove them directly in the roles tab", asyn
 });
 
 test("user can edit and delete profile from list", async ({ page }) => {
+  const mockSources = [
+    {
+      id: 1,
+      name: "Mock Source",
+      description: "",
+      urls: [{ url: "https://example.com/news", description: "" }],
+      rssFeeds: [{ feedUrl: "https://example.com/rss.xml", description: "" }],
+    },
+  ];
+  const mockProfiles: Array<Record<string, unknown>> = [];
+  let nextProfileId = 1000;
+
+  await page.route("**/api/sources", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(mockSources),
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  await page.route("**/api/notification-profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(mockProfiles),
+      });
+      return;
+    }
+
+    if (route.request().method() === "POST") {
+      const payload = route.request().postDataJSON() as Record<string, unknown>;
+      const createdProfile = {
+        id: nextProfileId++,
+        name: payload.name ?? "",
+        description: payload.description ?? "",
+        systemPrompt: payload.systemPrompt ?? "",
+        sourceId: Number(payload.sourceId ?? 1),
+        tags: Array.isArray(payload.tags) ? payload.tags : [],
+        roles: Array.isArray(payload.roles) ? payload.roles : [],
+        notificationChannelIds: Array.isArray(payload.notificationChannelIds)
+          ? payload.notificationChannelIds
+          : [],
+        notificationProfileId: payload.notificationProfileId ?? null,
+      };
+
+      mockProfiles.unshift(createdProfile);
+
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify(createdProfile),
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  await page.route("**/api/profiles/*", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const profileId = Number(requestUrl.pathname.split("/").pop());
+
+    if (route.request().method() === "PUT") {
+      const payload = route.request().postDataJSON() as Record<string, unknown>;
+      const index = mockProfiles.findIndex((entry) => entry.id === profileId);
+
+      if (index < 0) {
+        await route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Profile not found." }),
+        });
+        return;
+      }
+
+      const updated = {
+        ...mockProfiles[index],
+        name: payload.name ?? mockProfiles[index].name,
+        description: payload.description ?? mockProfiles[index].description,
+        systemPrompt: payload.systemPrompt ?? mockProfiles[index].systemPrompt,
+        sourceId: Number(payload.sourceId ?? mockProfiles[index].sourceId ?? 1),
+        tags: Array.isArray(payload.tags) ? payload.tags : [],
+        roles: Array.isArray(payload.roles) ? payload.roles : [],
+        notificationChannelIds: Array.isArray(payload.notificationChannelIds)
+          ? payload.notificationChannelIds
+          : [],
+        notificationProfileId: payload.notificationProfileId ?? null,
+      };
+
+      mockProfiles[index] = updated;
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(updated),
+      });
+      return;
+    }
+
+    if (route.request().method() === "DELETE") {
+      const index = mockProfiles.findIndex((entry) => entry.id === profileId);
+      if (index >= 0) {
+        mockProfiles.splice(index, 1);
+      }
+
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+
+    await route.fallback();
+  });
+
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   const baseProfileName = `Signal Desk ${Date.now()}`;
   const updatedProfileName = `${baseProfileName} Updated`;
@@ -625,14 +807,7 @@ test("user can edit and delete profile from list", async ({ page }) => {
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
 
   await addDialog.getByLabel("Profile name").fill(baseProfileName);
-  await addDialog.getByLabel("Custom").check();
-  await addDialog
-    .getByLabel("Source URL 1")
-    .fill("https://example.com/signals");
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/signals.xml");
+  await selectFirstAvailableSource(addDialog);
   await addDialog.getByRole("button", { name: "Save profile" }).click();
 
   const profileEntry = page
@@ -647,8 +822,9 @@ test("user can edit and delete profile from list", async ({ page }) => {
   ).toBeVisible();
 
   await editDialog.getByLabel("Profile name").fill(updatedProfileName);
-  await editDialog.getByRole("tab", { name: "RSS" }).click();
-  await editDialog.getByLabel("RSS title 1").fill("Signal Feed");
+  await editDialog
+    .getByLabel("Profile description")
+    .fill("Updated profile description");
   await editDialog.getByRole("button", { name: "Update profile" }).click();
 
   await expect(
@@ -675,6 +851,7 @@ test("selected profile in header scopes Chatbot and News context", async ({
   page,
 }) => {
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   const alphaProfileName = `Alpha Profile ${Date.now()}`;
   const betaProfileName = `Beta Profile ${Date.now()}`;
@@ -682,12 +859,7 @@ test("selected profile in header scopes Chatbot and News context", async ({
   await page.getByRole("button", { name: "Add profile" }).click();
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
   await addDialog.getByLabel("Profile name").fill(alphaProfileName);
-  await addDialog.getByLabel("Custom").check();
-  await addDialog.getByLabel("Source URL 1").fill("https://example.com/a");
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/a.xml");
+  await selectFirstAvailableSource(addDialog);
   await addDialog.getByRole("button", { name: "Save profile" }).click();
 
   await page.getByRole("button", { name: "Add profile" }).click();
@@ -695,14 +867,7 @@ test("selected profile in header scopes Chatbot and News context", async ({
     name: "Add profile dialog",
   });
   await addDialogSecond.getByLabel("Profile name").fill(betaProfileName);
-  await addDialogSecond.getByLabel("Custom").check();
-  await addDialogSecond
-    .getByLabel("Source URL 1")
-    .fill("https://example.com/b");
-  await addDialogSecond.getByRole("tab", { name: "RSS" }).click();
-  await addDialogSecond
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/b.xml");
+  await selectFirstAvailableSource(addDialogSecond);
   await addDialogSecond.getByRole("button", { name: "Save profile" }).click();
 
   const combobox = page.locator(".profile-combobox-input").first();
@@ -717,7 +882,7 @@ test("selected profile in header scopes Chatbot and News context", async ({
     .getByRole("navigation", { name: "Main" })
     .getByRole("link", { name: "Chatbot" })
     .click();
-  await expect(page.getByText("Active profile:")).toContainText(
+  await expect(page.locator(".profile-combobox-input").first()).toHaveValue(
     betaProfileName,
   );
 
@@ -732,16 +897,12 @@ test("selected profile in header scopes Chatbot and News context", async ({
 
 test("active profile dropdown filters while typing", async ({ page }) => {
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
 
   await page.getByRole("button", { name: "Add profile" }).click();
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
   await addDialog.getByLabel("Profile name").fill("Alpha Profile");
-  await addDialog.getByLabel("Custom").check();
-  await addDialog.getByLabel("Source URL 1").fill("https://example.com/a");
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/a.xml");
+  await selectFirstAvailableSource(addDialog);
   await addDialog.getByRole("button", { name: "Save profile" }).click();
 
   await page.getByRole("button", { name: "Add profile" }).click();
@@ -749,14 +910,7 @@ test("active profile dropdown filters while typing", async ({ page }) => {
     name: "Add profile dialog",
   });
   await addDialogSecond.getByLabel("Profile name").fill("Beta Profile");
-  await addDialogSecond.getByLabel("Custom").check();
-  await addDialogSecond
-    .getByLabel("Source URL 1")
-    .fill("https://example.com/b");
-  await addDialogSecond.getByRole("tab", { name: "RSS" }).click();
-  await addDialogSecond
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/b.xml");
+  await selectFirstAvailableSource(addDialogSecond);
   await addDialogSecond.getByRole("button", { name: "Save profile" }).click();
 
   const comboboxInput = page.locator(".profile-combobox-input").first();
@@ -783,7 +937,9 @@ test("active profile dropdown filters while typing", async ({ page }) => {
     .getByRole("navigation", { name: "Main" })
     .getByRole("link", { name: "Chatbot" })
     .click();
-  await expect(page.getByText("Active profile:")).toContainText("Beta Profile");
+  await expect(page.locator(".profile-combobox-input").first()).toHaveValue(
+    "Beta Profile",
+  );
 });
 
 test("profile save sends multiple notification channel ids", async ({
@@ -828,19 +984,12 @@ test("profile save sends multiple notification channel ids", async ({
   });
 
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
   await page.getByRole("button", { name: "Add profile" }).click();
 
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
   await addDialog.getByLabel("Profile name").fill("Multi Channel Profile");
-  await addDialog.getByLabel("Custom").check();
-  await addDialog
-    .getByLabel("Source URL 1")
-    .fill("https://example.com/multi-channel");
-
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/multi-channel.xml");
+  await selectFirstAvailableSource(addDialog);
   await addDialog.getByRole("tab", { name: "NOTIFICATION" }).click();
 
   // Open the notification channel multi-select dropdown
@@ -933,18 +1082,12 @@ test("notification channel multi-select supports keyboard-only selection", async
   });
 
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
   await page.getByRole("button", { name: "Add profile" }).click();
 
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
   await addDialog.getByLabel("Profile name").fill("Keyboard Channel Profile");
-  await addDialog.getByLabel("Custom").check();
-  await addDialog
-    .getByLabel("Source URL 1")
-    .fill("https://example.com/keyboard-channel");
-  await addDialog.getByRole("tab", { name: "RSS" }).click();
-  await addDialog
-    .getByLabel("RSS feed URL 1")
-    .fill("https://example.com/keyboard-channel.xml");
+  await selectFirstAvailableSource(addDialog);
   await addDialog.getByRole("tab", { name: "NOTIFICATION" }).click();
 
   const notificationChannelInput = addDialog
@@ -1000,6 +1143,7 @@ test("notification channel multi-select shows empty state for unmatched search",
   });
 
   await page.goto("/profiles");
+  await openProfilesManagementTab(page);
   await page.getByRole("button", { name: "Add profile" }).click();
 
   const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
@@ -1073,4 +1217,194 @@ test("notification channels tab shows add and edit controls", async ({
   // Close dialog
   await createDialog.getByRole("button", { name: "Close dialog" }).click();
   await expect(createDialog).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// Helper: shared profile and notification route stubs
+// ---------------------------------------------------------------------------
+function stubProfileAndNotificationRoutes(
+  page: import("@playwright/test").Page,
+  profile = {
+    id: 1,
+    name: "AI Focus",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    urls: [],
+    rssFeeds: [],
+    roles: [],
+    notificationChannelIds: [],
+    notificationProfileId: null,
+  },
+) {
+  return Promise.all([
+    page.route("**/api/profiles", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([profile]),
+        });
+        return;
+      }
+      await route.continue();
+    }),
+    page.route("**/api/notification-profiles", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([]),
+        });
+        return;
+      }
+      await route.continue();
+    }),
+    page.route("**/api/errors/count*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ count: 0 }),
+      });
+    }),
+  ]);
+}
+
+function makeNewsItems(count: number, profileId = 1) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: i + 1,
+    profileId,
+    title: `News item ${String(i + 1).padStart(2, "0")}`,
+    summary: `Summary for item ${i + 1}`,
+    origin: "Test Source",
+    link: `https://example.com/news/${i + 1}`,
+    // timestamps spread so sort order is deterministic
+    timestamp: new Date(2026, 4, 1, i).toISOString(),
+    favorite: false,
+  }));
+}
+
+test("news page sorts items by latest-first and oldest-first", async ({
+  page,
+}) => {
+  const newsItems = makeNewsItems(3);
+
+  await stubProfileAndNotificationRoutes(page);
+
+  await page.route("**/api/news?profileId=1", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(newsItems),
+    });
+  });
+
+  await page.goto("/news");
+
+  const rows = page
+    .getByRole("table", { name: "Collected AI news" })
+    .getByRole("row");
+
+  // Default: latest first — item with highest index timestamp appears first
+  // rows.nth(0) is the header row; data rows start at nth(1)
+  await expect(rows.nth(1)).toContainText("News item 03");
+  await expect(rows.nth(3)).toContainText("News item 01");
+
+  // Switch to oldest first
+  await page.getByLabel("Sort news by timestamp").selectOption("oldest");
+
+  await expect(rows.nth(1)).toContainText("News item 01");
+  await expect(rows.nth(3)).toContainText("News item 03");
+
+  // Switch back to latest first
+  await page.getByLabel("Sort news by timestamp").selectOption("latest");
+
+  await expect(rows.nth(1)).toContainText("News item 03");
+  await expect(rows.nth(3)).toContainText("News item 01");
+});
+
+test("news page pagination previous and next buttons are disabled at boundaries", async ({
+  page,
+}) => {
+  // 11 items forces two pages (page size = 10)
+  const newsItems = makeNewsItems(11);
+
+  await stubProfileAndNotificationRoutes(page);
+
+  await page.route("**/api/news?profileId=1", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(newsItems),
+    });
+  });
+
+  await page.goto("/news");
+
+  const previousButton = page.getByRole("button", { name: "Previous page" });
+  const nextButton = page.getByRole("button", { name: "Next page" });
+
+  // On page 1: Previous disabled, Next enabled
+  await expect(previousButton).toBeDisabled();
+  await expect(nextButton).toBeEnabled();
+  await expect(page.getByText("Page 1 of 2")).toBeVisible();
+  await expect(
+    page.getByText("Showing 1 to 10 of 11 news items"),
+  ).toBeVisible();
+
+  // Navigate to page 2
+  await nextButton.click();
+
+  await expect(page.getByText("Page 2 of 2")).toBeVisible();
+  await expect(
+    page.getByText("Showing 11 to 11 of 11 news items"),
+  ).toBeVisible();
+
+  // On last page: Next disabled, Previous enabled
+  await expect(nextButton).toBeDisabled();
+  await expect(previousButton).toBeEnabled();
+
+  // Navigate back to page 1
+  await previousButton.click();
+
+  await expect(page.getByText("Page 1 of 2")).toBeVisible();
+  await expect(previousButton).toBeDisabled();
+  await expect(nextButton).toBeEnabled();
+});
+
+test("news page manual refresh updates last refresh time", async ({ page }) => {
+  const newsItems = makeNewsItems(2);
+  let newsRequestCount = 0;
+
+  await stubProfileAndNotificationRoutes(page);
+
+  await page.route("**/api/news?profileId=1", async (route) => {
+    newsRequestCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(newsItems),
+    });
+  });
+
+  await page.goto("/news");
+
+  // Initial load sets the last refresh time
+  const refreshStatus = page.locator(".refresh-status");
+  await expect(refreshStatus).toContainText("Last refresh:");
+
+  // Record the current displayed time
+  const timeBefore = await refreshStatus.textContent();
+  expect(newsRequestCount).toBeGreaterThan(0);
+
+  // Click manual refresh — wait at least 1 second so the clock ticks
+  await page.waitForTimeout(1100);
+  await page.getByRole("button", { name: "Refresh news" }).click();
+
+  // Last refresh time must be visible and the displayed value must have updated
+  await expect(refreshStatus).toContainText("Last refresh:");
+  const timeAfter = await refreshStatus.textContent();
+  expect(newsRequestCount).toBeGreaterThan(1);
+  expect(timeAfter).toContain("Last refresh:");
+  expect(timeBefore).toContain("Last refresh:");
 });

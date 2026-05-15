@@ -2,6 +2,7 @@ CREATE TABLE profiles_t (
   id                       SERIAL       PRIMARY KEY,
   name                     TEXT         NOT NULL,
   description              TEXT,
+  source_id                INTEGER,
   use_custom_sources       BOOLEAN      NOT NULL DEFAULT FALSE,
   json                     JSONB,
   notification_profile_id  INTEGER,

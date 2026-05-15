@@ -14,6 +14,18 @@ BEGIN
   END IF;
 END $$;
 
+-- source_urls_t -> sources_t
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'source_urls_t_source_id_fkey'
+  ) THEN
+    ALTER TABLE source_urls_t
+      ADD CONSTRAINT source_urls_t_source_id_fkey
+        FOREIGN KEY (source_id) REFERENCES sources_t(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
 -- profile_tags_t -> profiles_t
 DO $$
 BEGIN
@@ -23,6 +35,18 @@ BEGIN
     ALTER TABLE profile_tags_t
       ADD CONSTRAINT profile_tags_t_profile_id_fkey
         FOREIGN KEY (profile_id) REFERENCES profiles_t(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+-- source_rss_feeds_t -> sources_t
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'source_rss_feeds_t_source_id_fkey'
+  ) THEN
+    ALTER TABLE source_rss_feeds_t
+      ADD CONSTRAINT source_rss_feeds_t_source_id_fkey
+        FOREIGN KEY (source_id) REFERENCES sources_t(id) ON DELETE CASCADE;
   END IF;
 END $$;
 
@@ -38,6 +62,19 @@ BEGIN
   END IF;
 END $$;
 
+-- profiles_t -> sources_t
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'profiles_t_source_id_fkey'
+  ) THEN
+    ALTER TABLE profiles_t
+      ADD CONSTRAINT profiles_t_source_id_fkey
+        FOREIGN KEY (source_id)
+          REFERENCES sources_t(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
 -- rss_feeds_t -> profiles_t
 DO $$
 BEGIN
@@ -50,15 +87,15 @@ BEGIN
   END IF;
 END $$;
 
--- news_t -> profiles_t
+-- news_t -> sources_t
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'news_t_profile_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'news_t_source_id_fkey'
   ) THEN
     ALTER TABLE news_t
-      ADD CONSTRAINT news_t_profile_id_fkey
-        FOREIGN KEY (profile_id) REFERENCES profiles_t(id) ON DELETE CASCADE;
+      ADD CONSTRAINT news_t_source_id_fkey
+        FOREIGN KEY (source_id) REFERENCES sources_t(id) ON DELETE CASCADE;
   END IF;
 END $$;
 
@@ -101,3 +138,16 @@ BEGIN
           REFERENCES notification_profiles_t(id) ON DELETE SET NULL;
   END IF;
 END $$;
+
+-- source_last_scrape_t -> sources_t
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'source_last_scrape_t_source_id_fkey'
+  ) THEN
+    ALTER TABLE source_last_scrape_t
+      ADD CONSTRAINT source_last_scrape_t_source_id_fkey
+        FOREIGN KEY (source_id) REFERENCES sources_t(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+

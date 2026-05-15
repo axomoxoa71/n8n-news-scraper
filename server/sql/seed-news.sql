@@ -1,17 +1,18 @@
--- Reset-style seed: exactly 9 sample news rows total (3 for each of the first 3 profiles).
+-- Reset-style seed: exactly 9 sample news rows total (3 for each of the first 3 sources).
 
 BEGIN;
 
 DELETE FROM news_t;
 
-WITH first_three_profiles AS (
-  SELECT id, ROW_NUMBER() OVER (ORDER BY id ASC) AS profile_rn
-  FROM profiles_t
+WITH first_three_sources AS (
+  SELECT id, ROW_NUMBER() OVER (ORDER BY id ASC) AS source_rn
+  FROM sources_t
   ORDER BY id ASC
   LIMIT 3
 )
 INSERT INTO news_t (
-  profile_id,
+  news_id,
+  source_id,
   title,
   summary,
   origin,
@@ -20,14 +21,15 @@ INSERT INTO news_t (
   favorite
 )
 SELECT
-  profile.id,
+  encode(digest(template.link || template.title, 'sha256'), 'hex'),
+  source.id,
   template.title,
   template.summary,
   template.origin,
   template.link,
   CURRENT_TIMESTAMP - template.age_interval,
   template.favorite
-FROM first_three_profiles AS profile
+FROM first_three_sources AS source
 JOIN (
   VALUES
     (
@@ -120,8 +122,8 @@ JOIN (
       INTERVAL '11 hours',
       FALSE
     )
-) AS template(profile_rn, item_rn, title, summary, origin, link, age_interval, favorite)
-  ON profile.profile_rn = template.profile_rn
-ORDER BY profile.profile_rn, template.item_rn;
+) AS template(source_rn, item_rn, title, summary, origin, link, age_interval, favorite)
+  ON source.source_rn = template.source_rn
+ORDER BY source.source_rn, template.item_rn;
 
 COMMIT;

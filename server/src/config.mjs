@@ -61,15 +61,42 @@ function resolveEnvironmentPostgresConfig(env, environmentScopedEnv = {}) {
 
 function resolveEnvironmentWebhookConfig(env, environmentScopedEnv = {}) {
   const webhookUrl =
-    toNonEmptyString(environmentScopedEnv.SCRAP_WEBHOOK_URL) ||
+    toNonEmptyString(environmentScopedEnv.SCRAPE_WEBHOOK_URL) ||
     toNonEmptyString(environmentScopedEnv.N8N_WORKFLOW_URL) ||
-    toNonEmptyString(env.SCRAP_WEBHOOK_URL) ||
+    toNonEmptyString(env.SCRAPE_WEBHOOK_URL) ||
     toNonEmptyString(env.N8N_WORKFLOW_URL);
   const basicAuthUser =
     toNonEmptyString(environmentScopedEnv.BASIC_AUTH_USER) ||
     toNonEmptyString(env.BASIC_AUTH_USER);
   const basicAuthPassword =
     toNonEmptyString(environmentScopedEnv.BASIC_AUTH_PWD) ||
+    toNonEmptyString(env.BASIC_AUTH_PWD);
+
+  return {
+    webhookUrl,
+    basicAuthUser,
+    basicAuthPassword,
+  };
+}
+
+function resolveEnvironmentChatbotWebhookConfig(
+  env,
+  environmentScopedEnv = {},
+) {
+  const webhookUrl =
+    toNonEmptyString(environmentScopedEnv.SCRAPE_CHATBOT_WEBHOOK_URL) ||
+    toNonEmptyString(environmentScopedEnv.CHATBOT_WEBHOOK_URL) ||
+    toNonEmptyString(env.SCRAPE_CHATBOT_WEBHOOK_URL) ||
+    toNonEmptyString(env.CHATBOT_WEBHOOK_URL);
+  const basicAuthUser =
+    toNonEmptyString(environmentScopedEnv.CHATBOT_BASIC_AUTH_USER) ||
+    toNonEmptyString(environmentScopedEnv.BASIC_AUTH_USER) ||
+    toNonEmptyString(env.CHATBOT_BASIC_AUTH_USER) ||
+    toNonEmptyString(env.BASIC_AUTH_USER);
+  const basicAuthPassword =
+    toNonEmptyString(environmentScopedEnv.CHATBOT_BASIC_AUTH_PWD) ||
+    toNonEmptyString(environmentScopedEnv.BASIC_AUTH_PWD) ||
+    toNonEmptyString(env.CHATBOT_BASIC_AUTH_PWD) ||
     toNonEmptyString(env.BASIC_AUTH_PWD);
 
   return {
@@ -108,6 +135,14 @@ export function loadServerConfig(env = process.env, options = {}) {
     env,
     environmentScopedEnv.test,
   );
+  const productionChatbotWebhook = resolveEnvironmentChatbotWebhookConfig(
+    env,
+    environmentScopedEnv.production,
+  );
+  const testChatbotWebhook = resolveEnvironmentChatbotWebhookConfig(
+    env,
+    environmentScopedEnv.test,
+  );
 
   return {
     port: toNumber(env.PORT, 4300),
@@ -119,6 +154,13 @@ export function loadServerConfig(env = process.env, options = {}) {
     scrapWebhookByEnvironment: {
       production: productionWebhook,
       test: testWebhook,
+    },
+    chatbotWebhookUrl: productionChatbotWebhook.webhookUrl,
+    chatbotWebhookBasicAuthUser: productionChatbotWebhook.basicAuthUser,
+    chatbotWebhookBasicAuthPassword: productionChatbotWebhook.basicAuthPassword,
+    chatbotWebhookByEnvironment: {
+      production: productionChatbotWebhook,
+      test: testChatbotWebhook,
     },
     postgresByEnvironment: {
       production: productionPostgres,

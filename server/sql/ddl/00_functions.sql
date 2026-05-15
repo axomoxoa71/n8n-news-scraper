@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Shared trigger function to auto-update updated_ts on row modification.
 -- Referenced by BEFORE UPDATE triggers on every table that has updated_ts.
 CREATE FUNCTION set_updated_ts()

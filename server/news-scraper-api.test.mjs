@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createServer } from "node:http";
 import { createNewsScraperApi } from "./src/app.mjs";
@@ -12,9 +13,11 @@ function createMemoryRepository() {
   let nextId = 1;
   let nextNewsId = 1;
   let nextErrorId = 1;
+  let nextChatId = 1;
   const profiles = [];
   const newsItems = [];
   const errorItems = [];
+  const chats = [];
   const notificationProfiles = [
     {
       id: 11,
@@ -29,6 +32,13 @@ function createMemoryRepository() {
       channels: [],
     },
   ];
+
+  function createNewsIdConflictError() {
+    const error = new Error("newsId must be unique.");
+    error.code = "23505";
+    error.constraint = "news_t_news_id_uk";
+    return error;
+  }
 
   return {
     async listProfiles() {
@@ -169,9 +179,16 @@ function createMemoryRepository() {
       }
     },
     async createNewsItem(newsInput) {
+      const newsId = newsInput.newsId ?? randomUUID();
+
+      if (newsItems.some((item) => item.newsId === newsId)) {
+        throw createNewsIdConflictError();
+      }
+
       const created = {
         ...structuredClone(newsInput),
         id: nextNewsId++,
+        newsId,
       };
 
       newsItems.unshift(created);
@@ -179,6 +196,134 @@ function createMemoryRepository() {
     },
     async listNotificationProfiles() {
       return structuredClone(notificationProfiles);
+    },
+    async createChat(chatMessageInput, traceId) {
+      const now = new Date().toISOString();
+      const createdChat = {
+        id: nextChatId++,
+        profileId: chatMessageInput.profileId,
+        sessionId: chatMessageInput.sessionId,
+        message: chatMessageInput.message,
+        agentResponse: null,
+        n8nExecutionId: null,
+        traceId,
+        status: "pending",
+        createdTs: now,
+        updatedTs: now,
+      };
+
+      chats.unshift(createdChat);
+      return structuredClone(createdChat);
+    },
+    async getChatsByProfileId(profileId) {
+      return structuredClone(
+        chats.filter((chat) => chat.profileId === profileId),
+      );
+    },
+    async listChatHistoryByProfileId(profileId, options = {}) {
+      const sessionIdQuery =
+        typeof options.sessionIdQuery === "string"
+          ? options.sessionIdQuery.trim().toLocaleLowerCase()
+          : "";
+      const qualityFilter =
+        typeof options.quality === "number" && Number.isInteger(options.quality)
+          ? options.quality
+          : null;
+      const sinceTs =
+        typeof options.sinceTs === "string" && options.sinceTs.trim().length > 0
+          ? Date.parse(options.sinceTs.trim())
+          : null;
+      const limit =
+        typeof options.limit === "number" && Number.isInteger(options.limit)
+          ? Math.max(1, options.limit)
+          : 1000;
+
+      const historyRows = chats
+        .filter((chat) => chat.profileId === profileId)
+        .flatMap((chat) => {
+          const rows = [
+            {
+              id: chat.id * 2 - 1,
+              profileId: chat.profileId,
+              sessionId: chat.sessionId,
+              message: chat.message,
+              role: "user",
+              quality: null,
+              createdTs: chat.createdTs,
+            },
+          ];
+
+          if (chat.agentResponse !== null) {
+            rows.push({
+              id: chat.id * 2,
+              profileId: chat.profileId,
+              sessionId: chat.sessionId,
+              message: chat.agentResponse,
+              role: "assistant",
+              quality:
+                chat.status === "failed"
+                  ? 0
+                  : chat.status === "completed"
+                    ? 1
+                    : null,
+              createdTs: chat.updatedTs,
+            });
+          }
+
+          return rows;
+        })
+        .filter((row) => {
+          if (!sessionIdQuery) {
+            return true;
+          }
+
+          return row.sessionId.toLocaleLowerCase().includes(sessionIdQuery);
+        })
+        .filter((row) => {
+          if (qualityFilter === null) {
+            return true;
+          }
+
+          return (
+            typeof row.quality === "number" && row.quality <= qualityFilter
+          );
+        })
+        .filter((row) => {
+          if (sinceTs === null || Number.isNaN(sinceTs)) {
+            return true;
+          }
+
+          return new Date(row.createdTs).getTime() >= sinceTs;
+        })
+        .sort(
+          (left, right) =>
+            new Date(right.createdTs).getTime() -
+            new Date(left.createdTs).getTime(),
+        )
+        .slice(0, limit);
+
+      return structuredClone(historyRows);
+    },
+    async getChat(chatId) {
+      const chat = chats.find((entry) => entry.id === chatId);
+      return chat ? structuredClone(chat) : null;
+    },
+    async updateChatResponse(chatId, agentResponse, n8nExecutionId, status) {
+      const index = chats.findIndex((entry) => entry.id === chatId);
+
+      if (index === -1) {
+        return null;
+      }
+
+      chats[index] = {
+        ...chats[index],
+        agentResponse,
+        n8nExecutionId,
+        status,
+        updatedTs: new Date().toISOString(),
+      };
+
+      return structuredClone(chats[index]);
     },
   };
 }
@@ -215,6 +360,8 @@ async function startTestServer(apiOptions = createMemoryRepository()) {
       }),
   };
 }
+
+const TEST_SESSION_ID = "11111111-1111-4111-8111-111111111111";
 
 function createApiConfig(overrides = {}) {
   return {
@@ -311,7 +458,7 @@ test("news scraper API supports list, create, update, and delete", async () => {
     const updatedProfile = await updateResponse.json();
     assert.equal(updatedProfile.name, "Backend Watch Updated");
     assert.equal(updatedProfile.useCustomSources, true);
-    assert.equal(updatedProfile.rssFeeds[0].format, "Atom");
+    assert.equal(updatedProfile.sourceId ?? null, null);
     assert.deepEqual(updatedProfile.tags, ["platform", "services"]);
     assert.deepEqual(updatedProfile.roles, ["CTO"]);
 
@@ -486,7 +633,7 @@ test("news scraper API propagates traceparent and returns traceId in 500 respons
   }
 });
 
-test("news scraper API accepts default AI sources mode without custom URL and RSS input", async () => {
+test("news scraper API accepts profile creation without explicit source id", async () => {
   const testServer = await startTestServer();
 
   try {
@@ -504,9 +651,8 @@ test("news scraper API accepts default AI sources mode without custom URL and RS
 
     assert.equal(createResponse.status, 201);
     const createdProfile = await createResponse.json();
-    assert.equal(createdProfile.useCustomSources, false);
-    assert.deepEqual(createdProfile.urls, []);
-    assert.deepEqual(createdProfile.rssFeeds, []);
+    assert.equal(createdProfile.useCustomSources, true);
+    assert.equal(createdProfile.sourceId ?? null, null);
   } finally {
     await testServer.close();
   }
@@ -604,6 +750,110 @@ test("news scraper API rejects unknown notification channel id references", asyn
   }
 });
 
+test("notification profiles API rejects empty channels array on create", async () => {
+  const testServer = await startTestServer();
+
+  try {
+    const response = await fetch(
+      `${testServer.baseUrl}/api/notification-profiles`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Empty Channels Profile",
+          description: "",
+          channels: [],
+        }),
+      },
+    );
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.error, "At least one notification channel is required.");
+    assert.match(body.traceId, /^[0-9a-f]{32}$/);
+  } finally {
+    await testServer.close();
+  }
+});
+
+test("notification profiles API rejects invalid email address on create", async () => {
+  const testServer = await startTestServer();
+
+  try {
+    const response = await fetch(
+      `${testServer.baseUrl}/api/notification-profiles`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Bad Email Profile",
+          description: "",
+          channels: [{ emailAddresses: ["not-an-email"] }],
+        }),
+      },
+    );
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.match(body.error, /not a valid email address/);
+    assert.match(body.traceId, /^[0-9a-f]{32}$/);
+  } finally {
+    await testServer.close();
+  }
+});
+
+test("notification profiles API rejects invalid slack webhook URL on create", async () => {
+  const testServer = await startTestServer();
+
+  try {
+    const response = await fetch(
+      `${testServer.baseUrl}/api/notification-profiles`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Bad Slack Profile",
+          description: "",
+          channels: [{ slackWebhookUrl: "not-a-url" }],
+        }),
+      },
+    );
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.match(body.error, /valid URL/);
+    assert.match(body.traceId, /^[0-9a-f]{32}$/);
+  } finally {
+    await testServer.close();
+  }
+});
+
+test("notification profiles API rejects empty channels array on update", async () => {
+  const testServer = await startTestServer();
+
+  try {
+    const response = await fetch(
+      `${testServer.baseUrl}/api/notification-profiles/11`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Updated Profile",
+          description: "",
+          channels: [],
+        }),
+      },
+    );
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.error, "At least one notification channel is required.");
+    assert.match(body.traceId, /^[0-9a-f]{32}$/);
+  } finally {
+    await testServer.close();
+  }
+});
+
 test("news API returns profile-scoped news and persists favorite flag", async () => {
   const repository = createMemoryRepository();
   const testServer = await startTestServer(repository);
@@ -633,6 +883,7 @@ test("news API returns profile-scoped news and persists favorite flag", async ()
     const newerTimestamp = new Date().toISOString();
 
     await repository.createNewsItem({
+      newsId: "33333333-3333-3333-3333-333333333301",
       profileId: createdProfile.id,
       title: "Older item",
       summary: "Older summary",
@@ -643,6 +894,7 @@ test("news API returns profile-scoped news and persists favorite flag", async ()
     });
 
     const newerItem = await repository.createNewsItem({
+      newsId: "33333333-3333-3333-3333-333333333302",
       profileId: createdProfile.id,
       title: "Newer item",
       summary: "Newer summary",
@@ -653,6 +905,7 @@ test("news API returns profile-scoped news and persists favorite flag", async ()
     });
 
     await repository.createNewsItem({
+      newsId: "33333333-3333-3333-3333-333333333303",
       profileId: createdProfile.id + 1,
       title: "Other profile item",
       summary: "Should not be returned",
@@ -695,6 +948,109 @@ test("news API returns profile-scoped news and persists favorite flag", async ()
     );
     const afterFavorite = await afterFavoriteResponse.json();
     assert.equal(afterFavorite[0].favorite, true);
+  } finally {
+    await testServer.close();
+  }
+});
+
+test("news API requires a unique newsId for created items", async () => {
+  const testServer = await startTestServer(createApiConfig());
+
+  try {
+    const createProfileResponse = await fetch(
+      `${testServer.baseUrl}/api/profiles`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "News Id Profile",
+          description: "",
+          useCustomSources: false,
+          tags: [],
+          roles: [],
+        }),
+      },
+    );
+
+    assert.equal(createProfileResponse.status, 201);
+    const createdProfile = await createProfileResponse.json();
+
+    const missingNewsIdResponse = await fetch(
+      `${testServer.baseUrl}/api/news`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          profileId: createdProfile.id,
+          title: "Missing external id",
+          summary: "Should fail validation.",
+          origin: "Test",
+          link: "https://example.com/news/missing-id",
+          timestamp: new Date().toISOString(),
+          favorite: false,
+        }),
+      },
+    );
+
+    assert.equal(missingNewsIdResponse.status, 400);
+    assert.equal(
+      (await missingNewsIdResponse.json()).error,
+      "newsId is required.",
+    );
+
+    const firstCreateResponse = await fetch(`${testServer.baseUrl}/api/news`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        newsId: "33333333-3333-3333-3333-333333333304",
+        profileId: createdProfile.id,
+        title: "First unique item",
+        summary: "Creates successfully.",
+        origin: "Test",
+        link: "https://example.com/news/first-unique-item",
+        timestamp: new Date().toISOString(),
+        favorite: false,
+      }),
+    });
+
+    assert.equal(firstCreateResponse.status, 201);
+    const firstCreatedItem = await firstCreateResponse.json();
+    assert.equal(
+      firstCreatedItem.newsId,
+      "33333333-3333-3333-3333-333333333304",
+    );
+
+    const duplicateNewsIdResponse = await fetch(
+      `${testServer.baseUrl}/api/news`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          newsId: "33333333-3333-3333-3333-333333333304",
+          profileId: createdProfile.id,
+          title: "Duplicate unique item",
+          summary: "Should fail uniqueness validation.",
+          origin: "Test",
+          link: "https://example.com/news/duplicate-unique-item",
+          timestamp: new Date().toISOString(),
+          favorite: false,
+        }),
+      },
+    );
+
+    assert.equal(duplicateNewsIdResponse.status, 409);
+    assert.equal(
+      (await duplicateNewsIdResponse.json()).error,
+      "newsId must be unique.",
+    );
   } finally {
     await testServer.close();
   }
@@ -949,6 +1305,7 @@ test("news API returns all profile-scoped rows even when roles are configured", 
     const createdProfile = await createProfileResponse.json();
 
     await repository.createNewsItem({
+      newsId: "33333333-3333-3333-3333-333333333305",
       profileId: createdProfile.id,
       title: "Executive technology strategy update",
       summary: "Platform innovation and architecture roadmap.",
@@ -959,6 +1316,7 @@ test("news API returns all profile-scoped rows even when roles are configured", 
     });
 
     await repository.createNewsItem({
+      newsId: "33333333-3333-3333-3333-333333333306",
       profileId: createdProfile.id,
       title: "Local meetup recap",
       summary: "General event highlights without role-specific context.",
@@ -1377,4 +1735,1130 @@ test("serializeNotificationChannelSnapshot returns normalized channel JSON", () 
       slackWebhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
     }),
   );
+});
+
+test("chatbot API returns hard-coded quick replies", async () => {
+  const testServer = await startTestServer(createApiConfig());
+
+  try {
+    const response = await fetch(`${testServer.baseUrl}/api/chats/quick-reply`);
+
+    assert.equal(response.status, 200);
+
+    const body = await response.json();
+    assert.ok(Array.isArray(body));
+    assert.ok(body.length > 0);
+    assert.ok(
+      body.every(
+        (entry) =>
+          typeof entry?.name === "string" &&
+          entry.name.trim().length > 0 &&
+          typeof entry?.prompt === "string" &&
+          entry.prompt.trim().length > 0,
+      ),
+    );
+  } finally {
+    await testServer.close();
+  }
+});
+
+test("chatbot API returns 503 when chatbot webhook URL is not configured", async () => {
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Chat Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const testServer = await startTestServer(createApiConfig({ repository }));
+
+  try {
+    const response = await fetch(`${testServer.baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "What changed today?",
+      }),
+    });
+
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.error, "Chatbot workflow is not configured.");
+    assert.match(body.traceId, /^[0-9a-f]{32}$/);
+  } finally {
+    await testServer.close();
+  }
+});
+
+test("chatbot API triggers webhook and stores chat history", async () => {
+  const workflowCalls = [];
+  const upstreamServer = createServer((request, response) => {
+    let rawBody = "";
+    request.on("data", (chunk) => {
+      rawBody += chunk;
+    });
+    request.on("end", () => {
+      workflowCalls.push({
+        method: request.method,
+        headers: request.headers,
+        body: rawBody,
+      });
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          answer: "Latest profile news has two new AI model releases.",
+          executionId: "exec-chat-123",
+        }),
+      );
+    });
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Chat Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+    chatbotWebhookBasicAuthUser: "user",
+    chatbotWebhookBasicAuthPassword: "password",
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "Summarize the latest AI news.",
+      }),
+    });
+
+    assert.equal(createResponse.status, 201);
+    const createdChat = await createResponse.json();
+    assert.equal(createdChat.profileId, createdProfile.id);
+    assert.equal(createdChat.sessionId, TEST_SESSION_ID);
+    assert.equal(createdChat.status, "completed");
+    assert.equal(
+      createdChat.agentResponse,
+      "Latest profile news has two new AI model releases.",
+    );
+    assert.equal(createdChat.n8nExecutionId, "exec-chat-123");
+
+    assert.equal(workflowCalls.length, 1);
+    assert.equal(workflowCalls[0].method, "POST");
+    const forwardedAuthorization = workflowCalls[0].headers.authorization;
+    assert.equal(
+      forwardedAuthorization,
+      `Basic ${Buffer.from("user:password", "utf8").toString("base64")}`,
+    );
+
+    const webhookRequestBody = JSON.parse(workflowCalls[0].body);
+    assert.deepEqual(webhookRequestBody, {
+      sessionId: TEST_SESSION_ID,
+      message: "Summarize the latest AI news.",
+    });
+    assert.deepEqual(Object.keys(webhookRequestBody), ["sessionId", "message"]);
+
+    const historyResponse = await fetch(
+      `${baseUrl}/api/profiles/${createdProfile.id}/chats`,
+    );
+    assert.equal(historyResponse.status, 200);
+    const history = await historyResponse.json();
+    assert.equal(history.length, 1);
+    assert.equal(history[0].id, createdChat.id);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+});
+
+test("chatbot dispatch API returns answer without persisting chat history", async () => {
+  const workflowCalls = [];
+  const upstreamServer = createServer((request, response) => {
+    let rawBody = "";
+    request.on("data", (chunk) => {
+      rawBody += chunk;
+    });
+    request.on("end", () => {
+      workflowCalls.push({
+        method: request.method,
+        body: rawBody,
+      });
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          answer: "Dispatch response from n8n.",
+          executionId: "exec-dispatch-1",
+        }),
+      );
+    });
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Dispatch Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+    chatbotWebhookBasicAuthUser: "user",
+    chatbotWebhookBasicAuthPassword: "password",
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const dispatchResponse = await fetch(`${baseUrl}/api/chats/dispatch`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "Use dispatch endpoint only.",
+      }),
+    });
+
+    assert.equal(dispatchResponse.status, 200);
+    const dispatchBody = await dispatchResponse.json();
+    assert.equal(dispatchBody.agentResponse, "Dispatch response from n8n.");
+    assert.equal(dispatchBody.executionId, "exec-dispatch-1");
+    assert.equal(dispatchBody.sessionId, TEST_SESSION_ID);
+
+    assert.equal(workflowCalls.length, 1);
+
+    const historyResponse = await fetch(
+      `${baseUrl}/api/profiles/${createdProfile.id}/chats`,
+    );
+    assert.equal(historyResponse.status, 200);
+    const history = await historyResponse.json();
+    assert.equal(history.length, 0);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+});
+
+test("chatbot dispatch API fails when webhook returns no synchronous answer", async () => {
+  const upstreamServer = createServer((request, response) => {
+    let rawBody = "";
+    request.on("data", (chunk) => {
+      rawBody += chunk;
+    });
+    request.on("end", () => {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          status: "accepted",
+          executionId: "exec-dispatch-no-answer",
+        }),
+      );
+    });
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Dispatch No Answer Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const dispatchResponse = await fetch(`${baseUrl}/api/chats/dispatch`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "Will dispatch fail clearly?",
+      }),
+    });
+
+    assert.equal(dispatchResponse.status, 502);
+    const dispatchBody = await dispatchResponse.json();
+    assert.equal(
+      dispatchBody.error,
+      "Chatbot webhook did not return a synchronous answer.",
+    );
+
+    const historyResponse = await fetch(
+      `${baseUrl}/api/profiles/${createdProfile.id}/chats`,
+    );
+    assert.equal(historyResponse.status, 200);
+    const history = await historyResponse.json();
+    assert.equal(history.length, 0);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+});
+
+test("chatbot dispatch API supports nested synchronous answer fields", async () => {
+  const upstreamServer = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          data: {
+            response: {
+              output: "Nested dispatch response",
+              id: "nested-dispatch-1",
+            },
+          },
+        }),
+      );
+    });
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Dispatch Nested Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const dispatchResponse = await fetch(`${baseUrl}/api/chats/dispatch`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "Can dispatch parse nested response?",
+      }),
+    });
+
+    assert.equal(dispatchResponse.status, 200);
+    const dispatchBody = await dispatchResponse.json();
+    assert.equal(dispatchBody.agentResponse, "Nested dispatch response");
+    assert.equal(dispatchBody.executionId, "nested-dispatch-1");
+
+    const historyResponse = await fetch(
+      `${baseUrl}/api/profiles/${createdProfile.id}/chats`,
+    );
+    assert.equal(historyResponse.status, 200);
+    const history = await historyResponse.json();
+    assert.equal(history.length, 0);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+});
+
+test("chat history endpoint returns timestamp-sorted rows and supports filters", async () => {
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "History Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const sessionA = "session-a-111";
+  const sessionB = "session-b-222";
+
+  const chatA = await repository.createChat({
+    profileId: createdProfile.id,
+    sessionId: sessionA,
+    message: "Question A",
+  });
+  await repository.updateChatResponse(chatA.id, "Answer A", null, "completed");
+
+  const chatB = await repository.createChat({
+    profileId: createdProfile.id,
+    sessionId: sessionB,
+    message: "Question B",
+  });
+  await repository.updateChatResponse(chatB.id, "Answer B", null, "failed");
+
+  const testServer = await startTestServer(createApiConfig({ repository }));
+
+  try {
+    const allResponse = await fetch(
+      `${testServer.baseUrl}/api/profiles/${createdProfile.id}/chat-history`,
+    );
+    assert.equal(allResponse.status, 200);
+    const allRows = await allResponse.json();
+
+    assert.equal(allRows.length, 4);
+    assert.equal(allRows[0].createdTs >= allRows[1].createdTs, true);
+    assert.equal(allRows[1].createdTs >= allRows[2].createdTs, true);
+    assert.equal(allRows[2].createdTs >= allRows[3].createdTs, true);
+
+    const sessionFilteredResponse = await fetch(
+      `${testServer.baseUrl}/api/profiles/${createdProfile.id}/chat-history?sessionId=session-a`,
+    );
+    assert.equal(sessionFilteredResponse.status, 200);
+    const sessionFilteredRows = await sessionFilteredResponse.json();
+    assert.equal(sessionFilteredRows.length, 2);
+    assert.equal(
+      sessionFilteredRows.every((row) => row.sessionId === sessionA),
+      true,
+    );
+
+    const qualityFilteredResponse = await fetch(
+      `${testServer.baseUrl}/api/profiles/${createdProfile.id}/chat-history?quality=1`,
+    );
+    assert.equal(qualityFilteredResponse.status, 200);
+    const qualityFilteredRows = await qualityFilteredResponse.json();
+    assert.equal(qualityFilteredRows.length, 2);
+    assert.equal(
+      qualityFilteredRows.every(
+        (row) => typeof row.quality === "number" && row.quality <= 1,
+      ),
+      true,
+    );
+
+    const invalidTimePeriodResponse = await fetch(
+      `${testServer.baseUrl}/api/profiles/${createdProfile.id}/chat-history?timePeriod=invalid`,
+    );
+    assert.equal(invalidTimePeriodResponse.status, 400);
+  } finally {
+    await testServer.close();
+  }
+});
+
+test("chatbot API appends profile context when message mentions profile", async () => {
+  const workflowCalls = [];
+  const upstreamServer = createServer((request, response) => {
+    let rawBody = "";
+    request.on("data", (chunk) => {
+      rawBody += chunk;
+    });
+    request.on("end", () => {
+      workflowCalls.push({ body: rawBody });
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          answer: "ok",
+        }),
+      );
+    });
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Profile Context Chat Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "Please summarize profile updates.",
+      }),
+    });
+
+    assert.equal(createResponse.status, 201);
+    assert.equal(workflowCalls.length, 1);
+
+    const webhookRequestBody = JSON.parse(workflowCalls[0].body);
+    assert.equal(
+      webhookRequestBody.message,
+      [
+        "Please summarize profile updates.",
+        "",
+        "Profile Id: 1",
+        "Profile Name: AI Demo",
+      ].join("\n"),
+    );
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+});
+
+test("chatbot API times out webhook call after configured timeout", async () => {
+  const upstreamServer = createServer((_request, _response) => {
+    // Intentionally never responds to trigger timeout.
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Timeout Chat Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+    chatbotWebhookBasicAuthUser: "user",
+    chatbotWebhookBasicAuthPassword: "password",
+    chatbotWebhookTimeoutMs: 25,
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "This should timeout.",
+      }),
+    });
+
+    assert.equal(createResponse.status, 504);
+    const createBody = await createResponse.json();
+    assert.equal(
+      createBody.error,
+      "Chatbot workflow timed out after 1 seconds.",
+    );
+
+    const historyResponse = await fetch(
+      `${baseUrl}/api/profiles/${createdProfile.id}/chats`,
+    );
+    assert.equal(historyResponse.status, 200);
+    const history = await historyResponse.json();
+    assert.equal(history.length, 1);
+    assert.equal(history[0].status, "failed");
+    assert.equal(
+      history[0].agentResponse,
+      "Chatbot workflow timed out after 1 seconds.",
+    );
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+});
+
+test("chatbot API accepts webhook response field", async () => {
+  const upstreamServer = createServer((request, response) => {
+    let rawBody = "";
+    request.on("data", (chunk) => {
+      rawBody += chunk;
+    });
+    request.on("end", () => {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          response: "My name is Chatty",
+        }),
+      );
+    });
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Response Key Chat Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "Who are you?",
+      }),
+    });
+
+    assert.equal(createResponse.status, 201);
+    const createdChat = await createResponse.json();
+    assert.equal(createdChat.status, "completed");
+    assert.equal(createdChat.agentResponse, "My name is Chatty");
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+});
+
+test("chatbot API accepts nested webhook response shapes", async () => {
+  const upstreamServer = createServer((request, response) => {
+    let rawBody = "";
+    request.on("data", (chunk) => {
+      rawBody += chunk;
+    });
+    request.on("end", () => {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify([
+          {
+            data: {
+              response: "Nested Chatty response",
+              executionId: "nested-exec-1",
+            },
+          },
+        ]),
+      );
+    });
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "Nested Response Chat Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "Who are you in nested shape?",
+      }),
+    });
+
+    assert.equal(createResponse.status, 201);
+    const createdChat = await createResponse.json();
+    assert.equal(createdChat.status, "completed");
+    assert.equal(createdChat.agentResponse, "Nested Chatty response");
+    assert.equal(createdChat.n8nExecutionId, "nested-exec-1");
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+});
+
+test("chatbot API fails when webhook returns no synchronous answer", async () => {
+  const upstreamServer = createServer((request, response) => {
+    let rawBody = "";
+    request.on("data", (chunk) => {
+      rawBody += chunk;
+    });
+    request.on("end", () => {
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          executionId: "exec-chat-no-answer",
+        }),
+      );
+    });
+  });
+
+  await new Promise((resolve) =>
+    upstreamServer.listen(0, "127.0.0.1", resolve),
+  );
+  const upstreamAddress = upstreamServer.address();
+
+  if (upstreamAddress === null || typeof upstreamAddress === "string") {
+    throw new Error("Could not determine upstream server address.");
+  }
+
+  const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
+
+  const repository = createMemoryRepository();
+  const createdProfile = await repository.createProfile({
+    name: "No Answer Chat Profile",
+    description: "",
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const api = createNewsScraperApi({
+    repository,
+    chatbotWebhookUrl: workflowUrl,
+    chatbotWebhookBasicAuthUser: "user",
+    chatbotWebhookBasicAuthPassword: "password",
+  });
+  const server = createServer(api);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+
+  if (address === null || typeof address === "string") {
+    throw new Error("Could not determine test server address.");
+  }
+
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/api/chats`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        profileId: createdProfile.id,
+        sessionId: TEST_SESSION_ID,
+        message: "Will this return synchronously?",
+      }),
+    });
+
+    assert.equal(createResponse.status, 502);
+    const createBody = await createResponse.json();
+    assert.equal(
+      createBody.error,
+      "Chatbot webhook did not return a synchronous answer.",
+    );
+
+    const historyResponse = await fetch(
+      `${baseUrl}/api/profiles/${createdProfile.id}/chats`,
+    );
+    assert.equal(historyResponse.status, 200);
+    const history = await historyResponse.json();
+    assert.equal(history.length, 1);
+    assert.equal(history[0].status, "failed");
+    assert.equal(
+      history[0].agentResponse,
+      "Chatbot webhook did not return a synchronous answer.",
+    );
+    assert.equal(history[0].n8nExecutionId, "exec-chat-no-answer");
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      upstreamServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
 });

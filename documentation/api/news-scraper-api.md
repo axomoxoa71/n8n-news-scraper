@@ -14,6 +14,8 @@
 
 The API exposes profile CRUD operations and profile-scoped news operations for the News page. It is served by the Node backend under `/api` and persists to Postgres when database environment variables are configured.
 
+For chatbot persistence, `chats_t` is used as an n8n integration storage table. Browser UI does not access `chats_t` directly; interaction is only through backend API endpoints.
+
 Profiles can optionally include notification channel selection metadata. Multi-select values are accepted through `notificationChannelIds` and persisted in the profile snapshot. For compatibility, `notificationProfileId` is also accepted and returned.
 
 When notification channel IDs are provided, every selected ID must reference an existing notification profile (`/api/notification-profiles`); unknown IDs are rejected with `400`.

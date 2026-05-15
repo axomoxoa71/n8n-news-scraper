@@ -6,6 +6,8 @@ import type {
   SavedNewsItem,
   NotificationChannel,
   NotificationChannelInput,
+  Source,
+  SourceInput,
 } from "../profiles";
 import { logWebEvent } from "../logger";
 
@@ -304,11 +306,88 @@ export async function deleteProfile(
   await handleApiResponse(response, { traceId, route, method });
 }
 
+export async function listSources(actionTraceId?: string): Promise<Source[]> {
+  const route = buildApiRoute("/sources");
+  const { response, traceId, method } = await apiFetch(
+    route,
+    {},
+    actionTraceId,
+  );
+  return handleApiResponse(response, { traceId, route, method }) as Promise<
+    Source[]
+  >;
+}
+
+export async function createSource(
+  source: SourceInput,
+  actionTraceId?: string,
+): Promise<Source> {
+  const route = buildApiRoute("/sources");
+  const { response, traceId, method } = await apiFetch(
+    route,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(source),
+    },
+    actionTraceId,
+  );
+
+  return handleApiResponse(response, {
+    traceId,
+    route,
+    method,
+  }) as Promise<Source>;
+}
+
+export async function updateSource(
+  sourceId: number,
+  source: SourceInput,
+  actionTraceId?: string,
+): Promise<Source> {
+  const route = buildApiRoute(`/sources/${sourceId}`);
+  const { response, traceId, method } = await apiFetch(
+    route,
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(source),
+    },
+    actionTraceId,
+  );
+
+  return handleApiResponse(response, {
+    traceId,
+    route,
+    method,
+  }) as Promise<Source>;
+}
+
+export async function deleteSource(
+  sourceId: number,
+  actionTraceId?: string,
+): Promise<void> {
+  const route = buildApiRoute(`/sources/${sourceId}`);
+  const { response, traceId, method } = await apiFetch(
+    route,
+    {
+      method: "DELETE",
+    },
+    actionTraceId,
+  );
+
+  await handleApiResponse(response, { traceId, route, method });
+}
+
 export async function listNews(
-  profileId: number,
+  sourceId: number,
   actionTraceId?: string,
 ): Promise<SavedNewsItem[]> {
-  const route = buildApiRoute(`/news?profileId=${profileId}`);
+  const route = buildApiRoute(`/news?sourceId=${sourceId}`);
   const { response, traceId, method } = await apiFetch(
     route,
     {},
@@ -322,7 +401,7 @@ export async function listNews(
 
 export async function updateNewsFavorite(
   newsId: number,
-  profileId: number,
+  sourceId: number,
   favorite: boolean,
   actionTraceId?: string,
 ): Promise<SavedNewsItem> {
@@ -335,7 +414,7 @@ export async function updateNewsFavorite(
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        profileId,
+        sourceId,
         favorite,
       }),
     },
@@ -443,6 +522,27 @@ export async function triggerScrapeWorkflow(
         "content-type": "application/json",
       },
       body: JSON.stringify({ profileId }),
+    },
+    actionTraceId,
+  );
+
+  await handleApiResponse(response, { traceId, route, method });
+}
+
+// New: trigger scrape workflow for a source
+export async function triggerSourceScrapeWorkflow(
+  sourceId: number,
+  actionTraceId?: string,
+): Promise<void> {
+  const route = buildApiRoute("/news/source/scrape");
+  const { response, traceId, method } = await apiFetch(
+    route,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ sourceId }),
     },
     actionTraceId,
   );

@@ -43,18 +43,20 @@
 
 - I need some test data which has a fix setup
 - 4 Profiles MUST be created in total, each with 3 URLs, 3 RSS feeds, 3 tags, and 3 roles.
-- 2 of these profiles are predefined and should be named `AI LLM` and `Error Test Profile`.
+- 2 of these profiles are predefined and should be named `AI Demo` and `Error Test Profile`.
 - For each profile 3 news items should be created linked to that profile.
 - There should be tests to verify that the seeded data is correctly created and can be used for testing and development.
 
-#### AI LLM Profile
+#### AI Demo Profile
 
-- Profile Name: AI LLM
-- Profile Description: A profile for testing with LLMs
-- Tags: llm, anthropic, claude
+- Profile Name: AI Demo
+- Profile Description: A profile AI news demonstration
+- Source (linked): AI Demo
+- Notification Channel (linked): AI Demo
+- System Prompt: You are an AI news assistant who focuses on news related to the tags and for the roles profided in this profile. You provide concise and informative summaries of the latest developments in the AI field, tailored to the interests of the users linked to this profile.
+- Tags: llm, openai, claude,anthropic, meta, agentic AI, MCP, RAG
 - Roles: Solution Architect, Software Engineer
-- Url: https://www.technologyreview.com/topic/artificial-intelligence/, https://www.unite.ai/, https://aiuniverseexplorer.com/ai-news-aggregator/, https://invalid/
-- RSS: https://planet-ai.net/rss.xml, https://invalid/rss.xml
+  xml,
 
 #### Error Test Profile
 
@@ -63,8 +65,16 @@
 
 #### Notification Channels
 
-- Channel Name: Test Channel
+- Channel Name: AI Demo
 - Email: robert.bernhard71@gmail.com
+
+#### Source AI Demo
+
+- Source Name: AI Demo
+- This profile must be exatcly set-up as described here (not more and not less or different) to ensure that the seeded data is consistent and can be used for testing and development without manual adjustments.
+- Url: https://ai.meta.com/blog/
+- RSS: https://openai.com/news/rss.xml, https://huggingface.co/blog/feed.xml,https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.
+- Description: A source for AI news demonstration.
 
 # Database Conventions
 
@@ -82,6 +92,7 @@
   - Check Constraints: `{table_name}_{column_name}_chk` (for example: `user_profiles_profile_name_chk`)
   - Separate DDL per table in own script in /server/sql/ddl/ (for example: `user_profiles.sql`, `news_items.sql`)
   - All FK should be located in a single file in /server/sql/fk/ (`foreign_keys.sql`)
+  - All database objects a snake_case and lowercase.
 
 ## User Interface
 
@@ -145,6 +156,10 @@
   - Non-functional requirements
   - User stories or use cases
   - Acceptance criteria
+- One documeent per main Screen and Menu Items or Tabs in the UI (for example: `chatbot-requirements.md`, `chatbot-history-requirements.md`)
+- Naming should reflect the screens and subscreens e.g. chatbot history is part of chatbot screen but has its own requirements document named `chatbot-history-requirements.md`
+- Root Level Documentation should be named: main-screen-requirements.md
+- Provide a visual mermaid diagram in main-screen-requirements.md to show the different screens and subscreens of the application and how they are related.
 
 ### API Documentation
 

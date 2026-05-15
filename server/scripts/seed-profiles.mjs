@@ -10,6 +10,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,32 +64,46 @@ function slugifyProfileName(profileName) {
     .replace(/^-+|-+$/g, "");
 }
 
+function createNewsHash(link, title) {
+  return createHash("sha256").update(`${link}${title}`, "utf8").digest("hex");
+}
+
 function createDefaultSeedNews(profileName) {
   const slug = slugifyProfileName(profileName) || "profile";
   const now = Date.now();
 
+  const firstLink = `https://example.com/news/${slug}-1`;
+  const firstTitle = `${profileName}: Daily Briefing 1`;
+  const secondLink = `https://example.com/news/${slug}-2`;
+  const secondTitle = `${profileName}: Daily Briefing 2`;
+  const thirdLink = `https://example.com/news/${slug}-3`;
+  const thirdTitle = `${profileName}: Daily Briefing 3`;
+
   return [
     {
-      title: `${profileName}: Daily Briefing 1`,
+      newsId: createNewsHash(firstLink, firstTitle),
+      title: firstTitle,
       summary: `Seeded sample news item 1 for ${profileName}.`,
       origin: "Seed Runner",
-      link: `https://example.com/news/${slug}-1`,
+      link: firstLink,
       timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
       favorite: false,
     },
     {
-      title: `${profileName}: Daily Briefing 2`,
+      newsId: createNewsHash(secondLink, secondTitle),
+      title: secondTitle,
       summary: `Seeded sample news item 2 for ${profileName}.`,
       origin: "Seed Runner",
-      link: `https://example.com/news/${slug}-2`,
+      link: secondLink,
       timestamp: new Date(now - 60 * 60 * 1000).toISOString(),
       favorite: true,
     },
     {
-      title: `${profileName}: Daily Briefing 3`,
+      newsId: createNewsHash(thirdLink, thirdTitle),
+      title: thirdTitle,
       summary: `Seeded sample news item 3 for ${profileName}.`,
       origin: "Seed Runner",
-      link: `https://example.com/news/${slug}-3`,
+      link: thirdLink,
       timestamp: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
       favorite: false,
     },
@@ -103,6 +118,23 @@ async function fetchJson(url) {
   }
 
   return response.json();
+}
+
+function getExpectedSourcePayload(profile) {
+  if (
+    profile &&
+    typeof profile._source === "object" &&
+    profile._source !== null
+  ) {
+    return profile._source;
+  }
+
+  return {
+    name: `${profile.name}`,
+    description: `Auto-generated source for ${profile.name}.`,
+    urls: Array.isArray(profile.urls) ? profile.urls : [],
+    rssFeeds: Array.isArray(profile.rssFeeds) ? profile.rssFeeds : [],
+  };
 }
 
 async function verifySeedState(expectedProfiles) {
@@ -125,8 +157,10 @@ async function verifySeedState(expectedProfiles) {
       );
     }
 
+    const expectedSource = getExpectedSourcePayload(expectedProfile);
+
     const actualUrls = new Set((actualProfile.urls ?? []).map((u) => u.url));
-    for (const expectedUrl of expectedProfile.urls ?? []) {
+    for (const expectedUrl of expectedSource.urls ?? []) {
       if (!actualUrls.has(expectedUrl.url)) {
         throw new Error(
           `Verification failed: profile "${expectedProfile.name}" is missing URL "${expectedUrl.url}".`,
@@ -137,7 +171,7 @@ async function verifySeedState(expectedProfiles) {
     const actualRss = new Set(
       (actualProfile.rssFeeds ?? []).map((feed) => feed.feedUrl),
     );
-    for (const expectedFeed of expectedProfile.rssFeeds ?? []) {
+    for (const expectedFeed of expectedSource.rssFeeds ?? []) {
       if (!actualRss.has(expectedFeed.feedUrl)) {
         throw new Error(
           `Verification failed: profile "${expectedProfile.name}" is missing RSS "${expectedFeed.feedUrl}".`,
@@ -159,25 +193,24 @@ async function verifySeedState(expectedProfiles) {
       );
     }
 
-    // URL and RSS counts only apply to profiles with custom sources enabled
-    if (expectedProfile.useCustomSources === true) {
-      const actualUrlCount = (actualProfile.urls ?? []).length;
-      if (actualUrlCount < 3) {
-        throw new Error(
-          `Verification failed: profile "${expectedProfile.name}" expected >= 3 URLs, got ${actualUrlCount}.`,
-        );
-      }
+    const expectedUrlCount = (expectedSource.urls ?? []).length;
+    const actualUrlCount = (actualProfile.urls ?? []).length;
+    if (actualUrlCount !== expectedUrlCount) {
+      throw new Error(
+        `Verification failed: profile "${expectedProfile.name}" expected ${expectedUrlCount} URLs, got ${actualUrlCount}.`,
+      );
+    }
 
-      const actualRssCount = (actualProfile.rssFeeds ?? []).length;
-      if (actualRssCount < 3) {
-        throw new Error(
-          `Verification failed: profile "${expectedProfile.name}" expected >= 3 RSS feeds, got ${actualRssCount}.`,
-        );
-      }
+    const expectedRssCount = (expectedSource.rssFeeds ?? []).length;
+    const actualRssCount = (actualProfile.rssFeeds ?? []).length;
+    if (actualRssCount !== expectedRssCount) {
+      throw new Error(
+        `Verification failed: profile "${expectedProfile.name}" expected ${expectedRssCount} RSS feeds, got ${actualRssCount}.`,
+      );
     }
 
     const profileNews = await fetchJson(
-      `${apiBaseUrl}/api/news?profileId=${actualProfile.id}`,
+      `${apiBaseUrl}/api/news?sourceId=${actualProfile.sourceId}`,
     );
 
     if (profileNews.length !== 3) {
@@ -238,6 +271,33 @@ async function initializeProfiles() {
       );
       deleteCount += 1;
     }
+
+    const existingSourcesResponse = await fetch(`${apiBaseUrl}/api/sources`);
+    if (!existingSourcesResponse.ok) {
+      throw new Error(
+        `Failed to list sources for strict reset: ${existingSourcesResponse.statusText}`,
+      );
+    }
+
+    const existingSources = await existingSourcesResponse.json();
+    for (const source of existingSources) {
+      const deleteSourceResponse = await fetch(
+        `${apiBaseUrl}/api/sources/${source.id}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      if (!deleteSourceResponse.ok) {
+        throw new Error(
+          `Failed to delete existing source ${source.id}: ${deleteSourceResponse.statusText}`,
+        );
+      }
+
+      console.log(
+        `⊘ Deleted existing source: "${source.name}" (ID: ${source.id})`,
+      );
+    }
   }
 
   const existingNames = new Set(
@@ -294,6 +354,33 @@ async function initializeProfiles() {
         ? profileToCreate._seedErrors
         : [];
       delete profileToCreate._seedErrors;
+
+      const sourcePayload = getExpectedSourcePayload(profileToCreate);
+      const sourceResponse = await fetch(`${apiBaseUrl}/api/sources`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(sourcePayload),
+      });
+
+      if (!sourceResponse.ok) {
+        const errorBody = await sourceResponse.json();
+        throw new Error(
+          errorBody.error ||
+            `Failed to create source for profile "${profileName}": ${sourceResponse.statusText}`,
+        );
+      }
+
+      const createdSource = await sourceResponse.json();
+      console.log(
+        `  ✓ Created source: "${createdSource.name}" (ID: ${createdSource.id})`,
+      );
+
+      profileToCreate.sourceId = createdSource.id;
+      delete profileToCreate.urls;
+      delete profileToCreate.rssFeeds;
+      delete profileToCreate._source;
 
       // Create the profile
       const createResponse = await fetch(`${apiBaseUrl}/api/profiles`, {
@@ -353,7 +440,7 @@ async function initializeProfiles() {
           },
           body: JSON.stringify({
             ...seedNewsItem,
-            profileId: createdProfile.id,
+            sourceId: createdProfile.sourceId,
           }),
         });
 

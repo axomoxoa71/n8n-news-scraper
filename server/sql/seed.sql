@@ -8,6 +8,9 @@ TRUNCATE TABLE
   notification_channels_t,
   error_t,
   news_t,
+  source_rss_feeds_t,
+  source_urls_t,
+  sources_t,
   rss_feeds_t,
   profile_roles_t,
   profile_tags_t,
@@ -19,7 +22,7 @@ RESTART IDENTITY CASCADE;
 -- 3 notification profiles
 INSERT INTO notification_profiles_t (name, description)
 VALUES
-  ('Test Channel', 'Test notification channel for development.'),
+  ('AI Demo', 'AI Demo notification channel for development.'),
   ('Slack Alerts', 'Primary Slack webhook delivery channel.'),
   ('Ops Alerts', 'Operations-focused notification channel.');
 
@@ -39,50 +42,18 @@ VALUES
   (3, 0, 'email', '["ops@example.com"]', NULL, jsonb_build_object('channelType', 'email', 'emailAddresses', '["ops@example.com"]'::jsonb)),
   (3, 1, 'email', '["ops-oncall@example.com"]', NULL, jsonb_build_object('channelType', 'email', 'emailAddresses', '["ops-oncall@example.com"]'::jsonb));
 
--- 4 profiles (including Error Test Profile for switching/error visibility tests)
-INSERT INTO profiles_t (
-  name,
-  description,
-  use_custom_sources,
-  notification_profile_id,
-  json
-)
+-- 4 sources (AI Demo + additional profiles)
+INSERT INTO sources_t (name, description)
 VALUES
-  (
-    'AI LLM',
-    'A profile for testing with LLMs',
-    TRUE,
-    1,
-    NULL
-  ),
-  (
-    'Agent Ecosystem',
-    'Autonomous agents and tooling updates.',
-    TRUE,
-    2,
-    NULL
-  ),
-  (
-    'Model Releases',
-    'Provider model and API release notes.',
-    TRUE,
-    3,
-    NULL
-  ),
-  (
-    'Error Test Profile',
-    'Dedicated profile for error indicator and profile switching tests.',
-    TRUE,
-    1,
-    NULL
-  );
+  ('AI Demo', 'A source for AI news demonstration.'),
+  ('Agent Ecosystem Source', 'Agent and orchestration focused sources.'),
+  ('Model Releases Source', 'Model and API release focused sources.'),
+  ('Error Test Source', 'Deterministic source set for error profile testing.');
 
--- 12 profile URLs (3 per profile)
-INSERT INTO profile_urls_t (profile_id, position, url, description)
+-- 10 source URLs (AI Demo has 1 URL, other sources have 3 URLs each)
+INSERT INTO source_urls_t (source_id, position, url, description)
 VALUES
-  (1, 0, 'https://www.technologyreview.com/topic/artificial-intelligence/', 'MIT Technology Review AI Coverage'),
-  (1, 1, 'https://www.unite.ai/', 'Unite AI News'),
-  (1, 2, 'https://aiuniverseexplorer.com/ai-news-aggregator/', 'AI Universe Explorer'),
+  (1, 0, 'https://ai.meta.com/blog/', 'Meta AI Blog'),
   (2, 0, 'https://www.technologyreview.com/topic/artificial-intelligence/', 'MIT Technology Review AI'),
   (2, 1, 'https://venturebeat.com/category/ai/', 'Enterprise AI product coverage'),
   (2, 2, 'https://www.theregister.com/machine_learning/', 'Industry agent tooling updates'),
@@ -93,12 +64,81 @@ VALUES
   (4, 1, 'https://www.githubstatus.com/', 'GitHub status and incident updates'),
   (4, 2, 'https://status.slack.com/', 'Slack status and incident updates');
 
--- 12 profile tags (3 per profile)
+-- 12 source RSS feeds (3 per source)
+INSERT INTO source_rss_feeds_t (
+  source_id,
+  position,
+  feed_url,
+  description
+)
+VALUES
+  (1, 0, 'https://openai.com/news/rss.xml', 'OpenAI News RSS'),
+  (1, 1, 'https://huggingface.co/blog/feed.xml', 'Hugging Face Blog RSS'),
+  (1, 2, 'https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss', 'Anthropic News RSS'),
+  (2, 0, 'https://feeds.feedburner.com/oreilly/radar/atom', 'OReilly Radar RSS'),
+  (2, 1, 'https://venturebeat.com/category/ai/feed/', 'VentureBeat AI RSS'),
+  (2, 2, 'https://www.theregister.com/machine_learning/headlines.atom', 'The Register ML RSS'),
+  (3, 0, 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml', 'The Verge AI RSS'),
+  (3, 1, 'https://openai.com/news/rss.xml', 'OpenAI News RSS'),
+  (3, 2, 'https://www.anthropic.com/news/rss.xml', 'Anthropic News RSS'),
+  (4, 0, 'https://status.openai.com/history.rss', 'OpenAI Status RSS'),
+  (4, 1, 'https://www.githubstatus.com/history.rss', 'GitHub Status RSS'),
+  (4, 2, 'https://status.slack.com/feed/rss', 'Slack Status RSS');
+
+-- 4 profiles (including Error Test Profile for switching/error visibility tests)
+INSERT INTO profiles_t (
+  name,
+  description,
+  source_id,
+  use_custom_sources,
+  notification_profile_id,
+  json
+)
+VALUES
+  (
+    'AI Demo',
+    'A profile AI news demonstration',
+    1,
+    TRUE,
+    1,
+    NULL
+  ),
+  (
+    'Agent Ecosystem',
+    'Autonomous agents and tooling updates.',
+    2,
+    TRUE,
+    2,
+    NULL
+  ),
+  (
+    'Model Releases',
+    'Provider model and API release notes.',
+    3,
+    TRUE,
+    3,
+    NULL
+  ),
+  (
+    'Error Test Profile',
+    'Dedicated profile for error indicator and profile switching tests.',
+    4,
+    TRUE,
+    1,
+    NULL
+  );
+
+-- profile tags (8 for profile 1, 3 each for profiles 2-4)
 INSERT INTO profile_tags_t (profile_id, position, tag_name)
 VALUES
   (1, 0, 'llm'),
-  (1, 1, 'anthropic'),
+  (1, 1, 'openai'),
   (1, 2, 'claude'),
+  (1, 3, 'anthropic'),
+  (1, 4, 'meta'),
+  (1, 5, 'agentic AI'),
+  (1, 6, 'MCP'),
+  (1, 7, 'RAG'),
   (2, 0, 'agents'),
   (2, 1, 'orchestration'),
   (2, 2, 'automation'),
@@ -109,12 +149,12 @@ VALUES
   (4, 1, 'switching'),
   (4, 2, 'ui-test');
 
--- 12 profile roles (3 per profile)
+-- profile roles (2 for profile 1, 3 each for profiles 2-4)
 INSERT INTO profile_roles_t (profile_id, position, role_name)
 VALUES
   (1, 0, 'Solution Architect'),
   (1, 1, 'Software Engineer'),
-  (1, 2, 'Data Scientist'),
+  (1, 2, 'Product Manager'),
   (2, 0, 'Architect'),
   (2, 1, 'Engineering Manager'),
   (2, 2, 'Product Manager'),
@@ -125,33 +165,11 @@ VALUES
   (4, 1, 'SRE'),
   (4, 2, 'Platform Engineer');
 
--- 12 RSS feeds (3 per profile)
-INSERT INTO rss_feeds_t (
-  profile_id,
-  position,
-  feed_url,
-  title,
-  refresh_cadence,
-  format,
-  category
-)
-VALUES
-  (1, 0, 'https://planet-ai.net/rss.xml', 'Planet AI', 'Every 30 minutes', 'RSS 2.0', 'LLM Updates'),
-  (1, 1, 'https://syncedreview.com/feed/', 'Synced Global AI News', 'Hourly', 'RSS 2.0', 'AI Research'),
-  (1, 2, 'https://www.infoq.com/ai-ml-data-eng/feed/', 'InfoQ AI/ML', 'Twice daily', 'RSS 2.0', 'AI Engineering'),
-  (2, 0, 'https://feeds.feedburner.com/oreilly/radar/atom', 'OReilly Radar', 'Hourly', 'Atom', 'AI Engineering'),
-  (2, 1, 'https://venturebeat.com/category/ai/feed/', 'VentureBeat AI', 'Hourly', 'RSS 2.0', 'AI Industry'),
-  (2, 2, 'https://www.theregister.com/machine_learning/headlines.atom', 'The Register ML', 'Twice daily', 'Atom', 'Agent Ecosystem'),
-  (3, 0, 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml', 'The Verge AI', 'Hourly', 'RSS 2.0', 'AI Industry'),
-  (3, 1, 'https://openai.com/news/rss.xml', 'OpenAI News', 'Hourly', 'RSS 2.0', 'Provider Releases'),
-  (3, 2, 'https://www.anthropic.com/news/rss.xml', 'Anthropic News', 'Twice daily', 'RSS 2.0', 'Provider Releases'),
-  (4, 0, 'https://status.openai.com/history.rss', 'OpenAI Status', 'Hourly', 'RSS 2.0', 'Operational Status'),
-  (4, 1, 'https://www.githubstatus.com/history.rss', 'GitHub Status', 'Hourly', 'RSS 2.0', 'Operational Status'),
-  (4, 2, 'https://status.slack.com/feed/rss', 'Slack Status', 'Hourly', 'RSS 2.0', 'Operational Status');
 
 -- 12 news rows (3 per profile)
 INSERT INTO news_t (
-  profile_id,
+  news_id,
+  source_id,
   title,
   summary,
   origin,
@@ -159,115 +177,126 @@ INSERT INTO news_t (
   published_ts,
   favorite
 )
-VALUES
-  (
-    1,
-    'Open-source agent benchmark published',
-    'A new benchmark compares autonomous coding agents on reliability, cost, and latency.',
-    'Agent Weekly',
-    'https://example.com/news/agent-benchmark',
-    CURRENT_TIMESTAMP - INTERVAL '15 minutes',
-    FALSE
-  ),
-  (
-    1,
-    'Foundation model vendor expands enterprise controls',
-    'New deployment controls add policy gating, audit trails, and regional rollout management.',
-    'Enterprise AI Brief',
-    'https://example.com/news/enterprise-controls',
-    CURRENT_TIMESTAMP - INTERVAL '50 minutes',
-    TRUE
-  ),
-  (
-    1,
-    'Inference cost report shows efficiency gains',
-    'New benchmarking data highlights lower latency and lower token costs across production workloads.',
-    'Model Ops Daily',
-    'https://example.com/news/inference-cost-report',
-    CURRENT_TIMESTAMP - INTERVAL '3 hours',
-    FALSE
-  ),
-  (
-    2,
-    'Model release improves long-context reasoning',
-    'Vendors report measurable reductions in retrieval failures on long-context prompts.',
-    'Applied AI Journal',
-    'https://example.com/news/long-context',
-    CURRENT_TIMESTAMP - INTERVAL '2 hours',
-    TRUE
-  ),
-  (
-    2,
-    'Agent framework adds human approval checkpoints',
-    'The latest agent orchestration release adds configurable approval gates before high-impact actions.',
-    'Agent Platform Review',
-    'https://example.com/news/approval-checkpoints',
-    CURRENT_TIMESTAMP - INTERVAL '4 hours',
-    FALSE
-  ),
-  (
-    2,
-    'Tool-using agents improve task recovery rates',
-    'A new evaluation shows better retry behavior and reduced failure loops in multi-step workflows.',
-    'Workflow Systems Weekly',
-    'https://example.com/news/task-recovery',
-    CURRENT_TIMESTAMP - INTERVAL '7 hours',
-    TRUE
-  ),
-  (
-    3,
-    'Vector stores add temporal query controls',
-    'New temporal filtering features improve freshness for production RAG workloads.',
-    'Data Infra Digest',
-    'https://example.com/news/vector-temporal',
-    CURRENT_TIMESTAMP - INTERVAL '5 hours',
-    FALSE
-  ),
-  (
-    3,
-    'Model provider ships new API version',
-    'Release notes include upgraded reasoning modes, response formatting controls, and migration guidance.',
-    'API Release Tracker',
-    'https://example.com/news/api-version',
-    CURRENT_TIMESTAMP - INTERVAL '8 hours',
-    TRUE
-  ),
-  (
-    3,
-    'Safety update tightens moderation defaults',
-    'Provider defaults now include stricter policy presets and clearer override documentation.',
-    'Provider Change Log',
-    'https://example.com/news/moderation-defaults',
-    CURRENT_TIMESTAMP - INTERVAL '11 hours',
-    FALSE
-  ),
-  (
-    4,
-    'Synthetic error-run baseline generated',
-    'A deterministic error-seed scenario was generated to validate profile switching behavior in the UI.',
-    'QA Seed Runner',
-    'https://example.com/news/error-seed-baseline',
-    CURRENT_TIMESTAMP - INTERVAL '20 minutes',
-    FALSE
-  ),
-  (
-    4,
-    'Workflow retry path exercised',
-    'Test harness intentionally triggered retry paths to validate error visibility per selected profile.',
-    'Integration Test Digest',
-    'https://example.com/news/workflow-retry-test',
-    CURRENT_TIMESTAMP - INTERVAL '70 minutes',
-    TRUE
-  ),
-  (
-    4,
-    'Error indicator switching validated',
-    'UI switching across profiles correctly adapted error count and button visibility in latest run.',
-    'UI Validation Notes',
-    'https://example.com/news/error-indicator-switching',
-    CURRENT_TIMESTAMP - INTERVAL '5 hours',
-    FALSE
-  );
+SELECT
+  encode(digest(seed_item.link || seed_item.title, 'sha256'), 'hex'),
+  seed_item.source_id,
+  seed_item.title,
+  seed_item.summary,
+  seed_item.origin,
+  seed_item.link,
+  CURRENT_TIMESTAMP - seed_item.age_interval,
+  seed_item.favorite
+FROM (
+  VALUES
+    (
+      1,
+      'Open-source agent benchmark published',
+      'A new benchmark compares autonomous coding agents on reliability, cost, and latency.',
+      'Agent Weekly',
+      'https://example.com/news/agent-benchmark',
+      INTERVAL '15 minutes',
+      FALSE
+    ),
+    (
+      1,
+      'Foundation model vendor expands enterprise controls',
+      'New deployment controls add policy gating, audit trails, and regional rollout management.',
+      'Enterprise AI Brief',
+      'https://example.com/news/enterprise-controls',
+      INTERVAL '50 minutes',
+      TRUE
+    ),
+    (
+      1,
+      'Inference cost report shows efficiency gains',
+      'New benchmarking data highlights lower latency and lower token costs across production workloads.',
+      'Model Ops Daily',
+      'https://example.com/news/inference-cost-report',
+      INTERVAL '3 hours',
+      FALSE
+    ),
+    (
+      2,
+      'Model release improves long-context reasoning',
+      'Vendors report measurable reductions in retrieval failures on long-context prompts.',
+      'Applied AI Journal',
+      'https://example.com/news/long-context',
+      INTERVAL '2 hours',
+      TRUE
+    ),
+    (
+      2,
+      'Agent framework adds human approval checkpoints',
+      'The latest agent orchestration release adds configurable approval gates before high-impact actions.',
+      'Agent Platform Review',
+      'https://example.com/news/approval-checkpoints',
+      INTERVAL '4 hours',
+      FALSE
+    ),
+    (
+      2,
+      'Tool-using agents improve task recovery rates',
+      'A new evaluation shows better retry behavior and reduced failure loops in multi-step workflows.',
+      'Workflow Systems Weekly',
+      'https://example.com/news/task-recovery',
+      INTERVAL '7 hours',
+      TRUE
+    ),
+    (
+      3,
+      'Vector stores add temporal query controls',
+      'New temporal filtering features improve freshness for production RAG workloads.',
+      'Data Infra Digest',
+      'https://example.com/news/vector-temporal',
+      INTERVAL '5 hours',
+      FALSE
+    ),
+    (
+      3,
+      'Model provider ships new API version',
+      'Release notes include upgraded reasoning modes, response formatting controls, and migration guidance.',
+      'API Release Tracker',
+      'https://example.com/news/api-version',
+      INTERVAL '8 hours',
+      TRUE
+    ),
+    (
+      3,
+      'Safety update tightens moderation defaults',
+      'Provider defaults now include stricter policy presets and clearer override documentation.',
+      'Provider Change Log',
+      'https://example.com/news/moderation-defaults',
+      INTERVAL '11 hours',
+      FALSE
+    ),
+    (
+      4,
+      'Synthetic error-run baseline generated',
+      'A deterministic error-seed scenario was generated to validate profile switching behavior in the UI.',
+      'QA Seed Runner',
+      'https://example.com/news/error-seed-baseline',
+      INTERVAL '20 minutes',
+      FALSE
+    ),
+    (
+      4,
+      'Workflow retry path exercised',
+      'Test harness intentionally triggered retry paths to validate error visibility per selected profile.',
+      'Integration Test Digest',
+      'https://example.com/news/workflow-retry-test',
+      INTERVAL '70 minutes',
+      TRUE
+    ),
+    (
+      4,
+      'Error indicator switching validated',
+      'UI switching across profiles correctly adapted error count and button visibility in latest run.',
+      'UI Validation Notes',
+      'https://example.com/news/error-indicator-switching',
+      INTERVAL '5 hours',
+      FALSE
+    )
+) AS seed_item(source_id, title, summary, origin, link, age_interval, favorite);
 
 -- 3 error rows for Error Test Profile (profile-switching test baseline)
 INSERT INTO error_t (
@@ -287,7 +316,7 @@ INSERT INTO error_t (
 VALUES
   (
     4,
-    'e4e4f6dd2df74f34b7746e72e5f67001',
+    'e4e4f6dd2df74f34b7746e72e5f67011',
     'exec-seed-001',
     'Synthetic switching test error',
     'Intentional seeded error used to verify profile switching and error indicator behavior in the UI.',
@@ -301,7 +330,7 @@ VALUES
   ),
   (
     4,
-    'e4e4f6dd2df74f34b7746e72e5f67002',
+    'e4e4f6dd2df74f34b7746e72e5f67012',
     'exec-seed-002',
     'Synthetic payload parse failure',
     'Intentional seeded payload parsing failure used for modal stack/json viewer tests.',
@@ -315,7 +344,7 @@ VALUES
   ),
   (
     4,
-    'e4e4f6dd2df74f34b7746e72e5f67003',
+    'e4e4f6dd2df74f34b7746e72e5f67013',
     'exec-seed-003',
     'Synthetic downstream timeout',
     'Intentional seeded downstream timeout used for profile-specific error count verification.',
@@ -328,11 +357,60 @@ VALUES
     jsonb_build_object('phase', 'dispatch', 'seedType', 'switching')
   );
 
+-- Add id to notification_channels_t JSON snapshots
+UPDATE notification_channels_t AS ch
+SET json = ch.json || jsonb_build_object('id', ch.id);
+
+-- Rebuild normalized JSON snapshots in sources_t
+UPDATE sources_t AS source
+SET json = jsonb_build_object(
+  'id', source.id,
+  'name', source.name,
+  'description', COALESCE(source.description, ''),
+  'urls', COALESCE(
+    (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'url', url_row.url,
+          'description', COALESCE(url_row.description, '')
+        )
+        ORDER BY url_row.position, url_row.id
+      )
+      FROM source_urls_t AS url_row
+      WHERE url_row.source_id = source.id
+    ),
+    '[]'::jsonb
+  ),
+  'rssFeeds', COALESCE(
+    (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'feedUrl', rss_row.feed_url,
+          'description', COALESCE(rss_row.description, '')
+        )
+        ORDER BY rss_row.position, rss_row.id
+      )
+      FROM source_rss_feeds_t AS rss_row
+      WHERE rss_row.source_id = source.id
+    ),
+    '[]'::jsonb
+  )
+);
+
 -- Rebuild normalized JSON snapshots in profiles_t
 UPDATE profiles_t AS profile
 SET json = jsonb_build_object(
+  'id', profile.id,
   'name', profile.name,
   'description', COALESCE(profile.description, ''),
+  'systemPrompt', CASE
+    WHEN profile.name = 'AI Demo' THEN 'You are an AI news assistant who focuses on news related to the tags and for the roles provided in this profile. You provide concise and informative summaries of the latest developments in the AI field, tailored to the interests of the users linked to this profile.'
+    WHEN profile.name = 'Agent Ecosystem' THEN 'Focus on agent ecosystems and orchestration.'
+    WHEN profile.name = 'Model Releases' THEN 'Focus on model releases and benchmarks.'
+    WHEN profile.name = 'Error Test Profile' THEN 'Used for error handling validation.'
+    ELSE ''
+  END,
+  'sourceId', profile.source_id,
   'useCustomSources', profile.use_custom_sources,
   'tags', COALESCE(
     (
@@ -359,8 +437,8 @@ SET json = jsonb_build_object(
         )
         ORDER BY url_row.position, url_row.id
       )
-      FROM profile_urls_t AS url_row
-      WHERE url_row.profile_id = profile.id
+      FROM source_urls_t AS url_row
+      WHERE url_row.source_id = profile.source_id
     ),
     '[]'::jsonb
   ),
@@ -369,15 +447,12 @@ SET json = jsonb_build_object(
       SELECT jsonb_agg(
         jsonb_build_object(
           'feedUrl', rss_row.feed_url,
-          'title', COALESCE(rss_row.title, ''),
-          'refreshCadence', rss_row.refresh_cadence,
-          'format', rss_row.format,
-          'category', COALESCE(rss_row.category, '')
+          'description', COALESCE(rss_row.description, '')
         )
         ORDER BY rss_row.position, rss_row.id
       )
-      FROM rss_feeds_t AS rss_row
-      WHERE rss_row.profile_id = profile.id
+      FROM source_rss_feeds_t AS rss_row
+      WHERE rss_row.source_id = profile.source_id
     ),
     '[]'::jsonb
   ),

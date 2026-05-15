@@ -98,8 +98,8 @@ Unhandled API exceptions are logged as `profiles_api_unhandled_error` with trace
 
 Downstream scrape webhook failures are logged as:
 
-- `scrap_webhook_trigger_failed` when the upstream response status is non-2xx.
-- `scrap_webhook_trigger_error` when network/runtime exceptions occur.
+- `scrape_webhook_trigger_failed` when the upstream response status is non-2xx.
+- `scrape_webhook_trigger_error` when network/runtime exceptions occur.
 
 ## Examples
 
@@ -118,7 +118,7 @@ Unhandled error log:
 Scrape webhook upstream failure log:
 
 ```text
-{"level":50,"timestamp":"2026-05-06T10:17:44.002Z","log_prefix":"[webhook-error-2026-05-06T10:17:44.002Z-4d49e94d0cb84f3ca0f170f2ec98d2dd]","layer":"webhook","trace_id":"4d49e94d0cb84f3ca0f170f2ec98d2dd","span_id":"31ef4f5d665dd280","parent_span_id":null,"http_status_code":500,"workflow_url":"https://example.com/webhook/scrape","message":"scrap_webhook_trigger_failed"}
+{"level":50,"timestamp":"2026-05-06T10:17:44.002Z","log_prefix":"[webhook-error-2026-05-06T10:17:44.002Z-4d49e94d0cb84f3ca0f170f2ec98d2dd]","layer":"webhook","trace_id":"4d49e94d0cb84f3ca0f170f2ec98d2dd","span_id":"31ef4f5d665dd280","parent_span_id":null,"http_status_code":500,"workflow_url":"https://example.com/webhook/scrape","message":"scrape_webhook_trigger_failed"}
 ```
 
 Web request completion log:

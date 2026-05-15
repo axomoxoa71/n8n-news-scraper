@@ -114,7 +114,7 @@ Manual initialization is optional. In normal development, starting the API is en
 
 ## Profile Seeding
 
-After the database is initialized, you can optionally seed predefined profiles (like "AI LLM") using one of these methods.
+After the database is initialized, you can optionally seed predefined profiles (like "AI Demo") using one of these methods.
 
 ### Option 1: Seed via API (Recommended)
 

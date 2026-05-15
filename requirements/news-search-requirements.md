@@ -23,7 +23,7 @@ Define requirements for retrieving, searching, filtering, sorting, and paginatin
 5. The page must support pagination for larger result sets.
 6. Favorite state updates must persist through `PUT /api/news/{id}/favorite`.
 7. The News page must support manual refresh and periodic auto-refresh.
-8. When roles exist on the selected profile, role relevance filtering/prioritization must be available client-side.
+8. When roles exist on the selected profile, role relevance filtering and prioritization of collected news is handled by the n8n scraping workflow layer, not by the UI or API. Profile roles are forwarded to n8n as part of the scrape payload so the workflow can apply relevance logic during collection.
 
 ## Non-Functional Requirements
 

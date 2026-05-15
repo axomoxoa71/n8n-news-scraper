@@ -5,17 +5,11 @@
 -- Usage: psql "$DATABASE_URL" -f server/sql/cleanup.sql
 
 -- ============================================================
--- Triggers (dropped implicitly by DROP TABLE CASCADE, but
--- listed explicitly for clarity and in case tables are kept)
+-- Triggers
+-- Note: trigger drops are intentionally omitted because
+-- DROP TRIGGER ... ON <table> fails when the table does not exist.
+-- Tables are dropped with CASCADE below, which removes triggers too.
 -- ============================================================
-DROP TRIGGER IF EXISTS notification_channels_t_updated_ts_trg  ON notification_channels_t;
-DROP TRIGGER IF EXISTS notification_profiles_t_updated_ts_trg   ON notification_profiles_t;
-DROP TRIGGER IF EXISTS error_t_updated_ts_trg                   ON error_t;
-DROP TRIGGER IF EXISTS news_t_updated_ts_trg                    ON news_t;
-DROP TRIGGER IF EXISTS rss_feeds_t_updated_ts_trg               ON rss_feeds_t;
-DROP TRIGGER IF EXISTS profile_tags_t_updated_ts_trg            ON profile_tags_t;
-DROP TRIGGER IF EXISTS profile_roles_t_updated_ts_trg           ON profile_roles_t;
-DROP TRIGGER IF EXISTS profiles_t_updated_ts_trg                ON profiles_t;
 
 -- ============================================================
 -- Tables (CASCADE drops all indexes, constraints, and FKs)
@@ -23,6 +17,11 @@ DROP TRIGGER IF EXISTS profiles_t_updated_ts_trg                ON profiles_t;
 -- ============================================================
 DROP TABLE IF EXISTS notification_channels_t  CASCADE;
 DROP TABLE IF EXISTS notification_profiles_t  CASCADE;
+DROP TABLE IF EXISTS source_last_scrape_t     CASCADE;
+DROP TABLE IF EXISTS source_rss_feeds_t       CASCADE;
+DROP TABLE IF EXISTS source_urls_t            CASCADE;
+DROP TABLE IF EXISTS sources_t                CASCADE;
+DROP TABLE IF EXISTS chats_t                  CASCADE;
 DROP TABLE IF EXISTS error_t                  CASCADE;
 DROP TABLE IF EXISTS news_t                   CASCADE;
 DROP TABLE IF EXISTS rss_feeds_t              CASCADE;

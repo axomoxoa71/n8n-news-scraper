@@ -6,12 +6,26 @@ function normalizeOptionalText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function toPositiveInteger(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function normalizeTagName(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
 function normalizeRoleName(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+function isUuid(value) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim(),
+    )
+  );
 }
 
 export function validateProfileInput(input) {
@@ -21,11 +35,15 @@ export function validateProfileInput(input) {
 
   const name = normalizeOptionalText(input.name);
   const description = normalizeOptionalText(input.description);
-  const useCustomSources = input.useCustomSources === true;
+  const systemPrompt = normalizeOptionalText(input.systemPrompt);
+  const sourceId = toPositiveInteger(input.sourceId);
 
   if (!name) {
     return { valid: false, error: "Profile name is required." };
   }
+
+  // Backward compatibility: allow legacy profile payloads that do not yet send sourceId.
+  // New clients should always provide sourceId.
 
   if (input.tags !== undefined && !Array.isArray(input.tags)) {
     return { valid: false, error: "Profile tags must be an array." };
@@ -78,71 +96,6 @@ export function validateProfileInput(input) {
 
     normalizedRoleNames.add(normalizedRoleKey);
     roles.push(roleName);
-  }
-
-  const urls = [];
-  if (useCustomSources) {
-    if (!Array.isArray(input.urls) || input.urls.length === 0) {
-      return { valid: false, error: "At least one profile URL is required." };
-    }
-
-    for (const entry of input.urls) {
-      if (!isObject(entry)) {
-        return { valid: false, error: "Each URL entry must be a JSON object." };
-      }
-
-      const url = normalizeOptionalText(entry.url);
-
-      if (!url) {
-        return { valid: false, error: "Each URL entry requires a URL." };
-      }
-
-      urls.push({
-        url,
-        description: normalizeOptionalText(entry.description),
-      });
-    }
-  }
-
-  const rssFeeds = [];
-  if (useCustomSources) {
-    if (!Array.isArray(input.rssFeeds) || input.rssFeeds.length === 0) {
-      return {
-        valid: false,
-        error: "At least one RSS feed entry is required.",
-      };
-    }
-
-    for (const entry of input.rssFeeds) {
-      if (!isObject(entry)) {
-        return { valid: false, error: "Each RSS entry must be a JSON object." };
-      }
-
-      const rssFeed = {
-        feedUrl: normalizeOptionalText(entry.feedUrl),
-        title: normalizeOptionalText(entry.title),
-        refreshCadence: normalizeOptionalText(entry.refreshCadence),
-        format: normalizeOptionalText(entry.format),
-        category: normalizeOptionalText(entry.category),
-      };
-
-      if (!rssFeed.feedUrl) {
-        return { valid: false, error: "Each RSS entry requires a feed URL." };
-      }
-
-      if (!rssFeed.refreshCadence) {
-        return {
-          valid: false,
-          error: "Each RSS entry requires a refresh cadence.",
-        };
-      }
-
-      if (!rssFeed.format) {
-        return { valid: false, error: "Each RSS entry requires a format." };
-      }
-
-      rssFeeds.push(rssFeed);
-    }
   }
 
   if (
@@ -205,13 +158,129 @@ export function validateProfileInput(input) {
     value: {
       name,
       description,
-      useCustomSources,
+      systemPrompt,
+      sourceId,
+      useCustomSources: true,
       tags,
       roles,
-      urls,
-      rssFeeds,
       notificationProfileId,
       notificationChannelIds,
+    },
+  };
+}
+
+export function validateSourceInput(input) {
+  if (!isObject(input)) {
+    return { valid: false, error: "Source payload must be a JSON object." };
+  }
+
+  const name = normalizeOptionalText(input.name);
+  const description = normalizeOptionalText(input.description);
+
+  if (!name) {
+    return { valid: false, error: "Source name is required." };
+  }
+
+  if (!Array.isArray(input.urls) || input.urls.length === 0) {
+    return { valid: false, error: "At least one source URL is required." };
+  }
+
+  if (!Array.isArray(input.rssFeeds) || input.rssFeeds.length === 0) {
+    return { valid: false, error: "At least one source RSS feed is required." };
+  }
+
+  const urls = [];
+  for (const entry of input.urls) {
+    if (!isObject(entry)) {
+      return {
+        valid: false,
+        error: "Each source URL entry must be a JSON object.",
+      };
+    }
+
+    const url = normalizeOptionalText(entry.url);
+    if (!url) {
+      return { valid: false, error: "Each source URL entry requires a URL." };
+    }
+
+    urls.push({
+      url,
+      description: normalizeOptionalText(entry.description),
+    });
+  }
+
+  const rssFeeds = [];
+  for (const entry of input.rssFeeds) {
+    if (!isObject(entry)) {
+      return {
+        valid: false,
+        error: "Each source RSS entry must be a JSON object.",
+      };
+    }
+
+    const rssFeed = {
+      feedUrl: normalizeOptionalText(entry.feedUrl),
+      description: normalizeOptionalText(entry.description),
+    };
+
+    if (!rssFeed.feedUrl) {
+      return {
+        valid: false,
+        error: "Each source RSS entry requires a feed URL.",
+      };
+    }
+
+    rssFeeds.push(rssFeed);
+  }
+
+  return {
+    valid: true,
+    value: {
+      name,
+      description,
+      urls,
+      rssFeeds,
+    },
+  };
+}
+
+export function validateChatMessageInput(input) {
+  if (!isObject(input)) {
+    return {
+      valid: false,
+      error: "Chat message payload must be a JSON object.",
+    };
+  }
+
+  const profileId = input.profileId;
+  const sessionId = normalizeOptionalText(input.sessionId);
+  const message = normalizeOptionalText(input.message);
+
+  if (typeof profileId !== "number" || profileId < 1) {
+    return { valid: false, error: "Profile id must be a positive integer." };
+  }
+
+  if (!isUuid(sessionId)) {
+    return { valid: false, error: "Session id must be a valid UUID." };
+  }
+
+  if (!message) {
+    return { valid: false, error: "Message is required." };
+  }
+
+  if (message.length > 2000) {
+    return {
+      valid: false,
+      error: "Message cannot exceed 2000 characters.",
+    };
+  }
+
+  return {
+    valid: true,
+    value: {
+      profileId,
+      sessionId,
+      message,
     },
   };
 }

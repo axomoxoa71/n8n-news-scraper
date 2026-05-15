@@ -1,0 +1,331 @@
+          </div>
+        </ModalDialog>
+      ) : null}
+    </>
+  );
+}
+
+function ErrorsPage({ selectedProfile }: ContextPageProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [errors, setErrors] = useState<SavedErrorItem[]>([]);
+
+  useEffect(() => {
+    if (!selectedProfile) {
+      setErrors([]);
+      return;
+    }
+
+    const actionTraceId = generateActionTraceId();
+
+    void listErrors(selectedProfile.id, "", actionTraceId)
+      .then((loadedErrors) => {
+        if (loadedErrors.length === 0) {
+          navigate("/news", { replace: true });
+        }
+        setErrors(loadedErrors);
+      })
+      .catch(() => {
+        // On error, just navigate away
+        navigate("/news", { replace: true });
+      });
+  }, [selectedProfile?.id, location.pathname, navigate])
+          <div className="panel errors-list-panel">
+            <h2>Error list</h2>
+            <ul className="error-list" aria-label="Profile errors">
+              {filteredErrors.map((errorItem) => (
+                <li key={errorItem.id}>
+                  <button
+                    type="button"
+                    className={`error-list-button${
+                      errorItem.id === selectedErrorId ? " is-selected" : ""
+                    }`}
+                    onClick={() => {
+                      setSelectedErrorId(errorItem.id);
+                    }}
+                  >
+                    <span className="error-http-code">
+                      {errorItem.errorHttpCode}
+                    </span>
+                    <span className="error-list-content">
+                      <strong>{errorItem.errorMessage}</strong>
+                      <span>
+                        {errorItem.nodeName} •{" "}
+                        {formatNewsTimestamp(errorItem.createdTs)}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="panel errors-detail-panel">
+            <h2>Error details</h2>
+            {selectedError ? (
+              <dl className="error-detail-grid">
+                <dt>ID</dt>
+                <dd>{selectedError.id}</dd>
+
+                <dt>Trace ID</dt>
+                <dd>{selectedError.traceId}</dd>
+
+                <dt>Execution ID</dt>
+                <dd>{selectedError.executionId}</dd>
+
+                <dt>Error message</dt>
+                <dd>{selectedError.errorMessage}</dd>
+
+                <dt>Error description</dt>
+                <dd>{selectedError.errorDescription ?? <em>—</em>}</dd>
+
+                <dt>Error stack</dt>
+                <dd>
+                  {selectedError.errorStack ? (
+                    <button
+                      type="button"
+                      className="ghost-button compact-button"
+                      onClick={() => {
+                        setDetailsModalState({
+                          title: "Stack Trace",
+                          content: selectedError.errorStack!,
+                        });
+                      }}
+                    >
+                      Open stack trace
+                    </button>
+                  ) : (
+                    <em>—</em>
+                  )}
+                </dd>
+
+                <dt>Error HTTP code</dt>
+                <dd>{selectedError.errorHttpCode ?? <em>—</em>}</dd>
+
+                <dt>Node name</dt>
+                <dd>{selectedError.nodeName}</dd>
+
+                <dt>Node type</dt>
+                <dd>{selectedError.nodeType}</dd>
+
+                <dt>Workflow name</dt>
+                <dd>{selectedError.workflowName}</dd>
+
+                <dt>Workflow id</dt>
+                <dd>{selectedError.workflowId}</dd>
+
+                <dt>JSON</dt>
+                <dd>
+                  {selectedError.json ? (
+                    <button
+                      type="button"
+                      className="ghost-button compact-button"
+                      onClick={() => {
+                        setDetailsModalState({
+                          title: "JSON",
+                          content: JSON.stringify(selectedError.json, null, 2),
+                        });
+                      }}
+                    >
+                      Open JSON
+                    </button>
+                  ) : (
+                    <em>—</em>
+                  )}
+                </dd>
+
+                <dt>Created</dt>
+                <dd>{formatNewsTimestamp(selectedError.createdTs)}</dd>
+
+                <dt>Updated</dt>
+                <dd>{formatNewsTimestamp(selectedError.updatedTs)}</dd>
+              </dl>
+            ) : (
+              <p>Select an error from the list to view details.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {detailsModalState ? (
+        <ModalDialog
+          title={detailsModalState.title}
+          onClose={() => {
+            setDetailsModalState(null);
+            setCopyFeedback("");
+          }}
+        >
+          <div className="errors-details-modal-body">
+            <div className="errors-details-modal-actions">
+              <button
+                type="button"
+                className="primary-button compact-button"
+                onClick={() => {
+                  void handleCopyModalContent();
+                }}
+              >
+                Copy
+              </button>
+              {copyFeedback ? (
+                <span aria-live="polite" className="errors-copy-feedback">
+                  {copyFeedback}
+                </span>
+              ) : null}
+            </div>
+            <textarea
+              className="errors-details-modal-content"
+              value={detailsModalState.content}
+              readOnly
+            />
+          </div>
+        </ModalDialog>
+      ) : null}
+    </section>
+  );
+}
+
+function App() {
+  const [activeEnvironment, setActiveEnvironment] =
+    useState<ApiEnvironment | null>(() => {
+      // On page refresh (same session), restore from localStorage
+      // On new tab/window (new session), show dialog (return null)
+      if (isSessionEnvironmentSelected()) {
+        return getInitialAppEnvironment();
+      }
+      return null;
+    });
+  const [pendingEnvironmentSelection, setPendingEnvironmentSelection] =
+    useState<ApiEnvironment>(() => getInitialAppEnvironment() ?? "production");
+  const [profiles, setProfiles] = useState<SavedProfile[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [profilesError, setProfilesError] = useState("");
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
+  const [notificationChannels, setNotificationChannels] = useState<
+    NotificationChannel[]
+  >([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(
+    null,
+  );
+  const [selectedProfileErrorCount, setSelectedProfileErrorCount] = useState(0);
+  const [isErrorsModalOpen, setIsErrorsModalOpen] = useState(false);
+
+  async function loadProfiles() {
+    setIsLoadingProfiles(true);
+    setProfilesError("");
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      const loadedProfiles = await listProfiles(actionTraceId);
+      setProfiles(loadedProfiles);
+    } catch (error) {
+      setProfilesError(
+        withTraceId(
+          "Could not load profiles from the API. Check the backend server and database configuration.",
+          error,
+          actionTraceId,
+        ),
+      );
+    } finally {
+      setIsLoadingProfiles(false);
+    }
+  }
+
+  async function loadNotificationChannels() {
+    const actionTraceId = generateActionTraceId();
+    try {
+      const loaded = await listNotificationChannels(actionTraceId);
+      setNotificationChannels(loaded);
+    } catch (error) {
+      console.error("Could not load notification channels:", error);
+    }
+  }
+
+  async function loadSources() {
+    const actionTraceId = generateActionTraceId();
+    try {
+      const loaded = await listSources(actionTraceId);
+      setSources(loaded);
+    } catch (error) {
+      console.error("Could not load sources:", error);
+    }
+  }
+
+  useEffect(() => {
+    if (activeEnvironment === null) {
+      return;
+    }
+
+    setApiEnvironment(activeEnvironment);
+    setChatbotApiEnvironment(activeEnvironment);
+
+    try {
+      window.localStorage.setItem(
+        APP_ENVIRONMENT_STORAGE_KEY,
+        activeEnvironment,
+      );
+    } catch {
+      // Ignore storage failures and keep runtime-only selection.
+    }
+
+    // Mark that environment has been selected in this session
+    try {
+      sessionStorage.setItem(SESSION_ENVIRONMENT_STORAGE_KEY, "true");
+    } catch {
+      // Ignore storage failures
+    }
+
+    void loadProfiles();
+    void loadSources();
+    void loadNotificationChannels();
+  }, [activeEnvironment]);
+
+  useEffect(() => {
+    if (profiles.length === 0) {
+      setSelectedProfileId(null);
+      return;
+    }
+
+    setSelectedProfileId((currentId) => {
+      if (
+        currentId !== null &&
+        profiles.some((profile) => profile.id === currentId)
+      ) {
+        return currentId;
+      }
+
+      const aiDemoProfile = profiles.find(
+        (profile) => profile.name.trim().toLocaleLowerCase() === "ai demo",
+      );
+
+      return aiDemoProfile?.id ?? profiles[0].id;
+    });
+  }, [profiles]);
+
+  const selectedProfile = useMemo(
+    () => profiles.find((profile) => profile.id === selectedProfileId) ?? null,
+    [profiles, selectedProfileId],
+  );
+
+  useEffect(() => {
+    if (!selectedProfile) {
+      setSelectedProfileErrorCount(0);
+      return;
+    }
+
+    // Clear stale count while switching profiles, then load fresh profile-scoped count.
+    setSelectedProfileErrorCount(0);
+
+    const activeProfileId = selectedProfile.id;
+
+    let isCancelled = false;
+
+    async function loadErrorCount() {
+      const actionTraceId = generateActionTraceId();
+
+      try {
+        const currentErrors = await listErrors(
+          activeProfileId,
+          "",
+          actionTraceId,
+        );
+

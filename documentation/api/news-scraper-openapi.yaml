@@ -108,6 +108,25 @@ paths:
                   $ref: "#/components/schemas/NewsItem"
         "400":
           description: Invalid profileId query value
+    post:
+      summary: Create a news item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewsItemInput"
+      responses:
+        "201":
+          description: News item created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewsItem"
+        "400":
+          description: Validation error
+        "409":
+          description: Duplicate newsId
   /api/news/{id}/favorite:
     put:
       summary: Update favorite state for one news item
@@ -379,10 +398,36 @@ components:
     NewsItem:
       type: object
       required:
-        [id, profileId, title, summary, origin, link, timestamp, favorite]
+        [id, newsId, profileId, title, summary, link, timestamp, favorite]
       properties:
         id:
           type: integer
+        newsId:
+          type: string
+          description: News identifier stored as text. Seeded records use SHA-256(link + title).
+        profileId:
+          type: integer
+        title:
+          type: string
+        summary:
+          type: string
+        origin:
+          type: string
+        link:
+          type: string
+          format: uri
+        timestamp:
+          type: string
+          format: date-time
+        favorite:
+          type: boolean
+    NewsItemInput:
+      type: object
+      required: [newsId, profileId, title, summary, link]
+      properties:
+        newsId:
+          type: string
+          description: News identifier stored as text. Seeded records use SHA-256(link + title).
         profileId:
           type: integer
         title:

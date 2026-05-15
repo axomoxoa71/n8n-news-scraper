@@ -27,7 +27,7 @@ import {
   listNotificationChannels,
   createNotificationChannel,
   updateNotificationChannel,
-  triggerScrapeWorkflow,
+  triggerSourceScrapeWorkflow,
   listErrors,
   deleteNotificationChannel as deleteNotificationChannelRequest,
 } from "./api/profiles";
@@ -913,6 +913,12 @@ function ProfileForm({
   const [tagInput, setTagInput] = useState("");
   const [roleInput, setRoleInput] = useState("");
   const [localError, setLocalError] = useState("");
+  const [isScrapingSource, setIsScrapingSource] = useState(false);
+  const [sourceScrapeSuccess, setSourceScrapeSuccess] = useState(false);
+  const [sourceScrapeError, setSourceScrapeError] = useState("");
+  const sourceScrapeSuccessTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
 
   useEffect(() => {
     setDraft(initialDraft);
@@ -920,7 +926,47 @@ function ProfileForm({
     setTagInput("");
     setRoleInput("");
     setLocalError("");
+    setSourceScrapeError("");
+    setSourceScrapeSuccess(false);
   }, [initialDraft]);
+
+  useEffect(() => {
+    return () => {
+      if (sourceScrapeSuccessTimerRef.current) {
+        clearTimeout(sourceScrapeSuccessTimerRef.current);
+      }
+    };
+  }, []);
+
+  async function handleSourceScrape() {
+    if (!draft.sourceId) {
+      return;
+    }
+
+    const actionTraceId = generateActionTraceId();
+    setIsScrapingSource(true);
+    setSourceScrapeSuccess(false);
+    setSourceScrapeError("");
+
+    try {
+      await triggerSourceScrapeWorkflow(draft.sourceId, actionTraceId);
+      setSourceScrapeSuccess(true);
+
+      if (sourceScrapeSuccessTimerRef.current) {
+        clearTimeout(sourceScrapeSuccessTimerRef.current);
+      }
+
+      sourceScrapeSuccessTimerRef.current = setTimeout(() => {
+        setSourceScrapeSuccess(false);
+      }, 2000);
+    } catch (error) {
+      setSourceScrapeError(
+        withTraceId("Could not trigger scrape workflow.", error, actionTraceId),
+      );
+    } finally {
+      setIsScrapingSource(false);
+    }
+  }
 
   function addTag(rawValue: string) {
     const normalizedTag = normalizeTagName(rawValue);
@@ -1134,6 +1180,24 @@ function ProfileForm({
               <p className="section-kicker">Section</p>
               <h3 id="profile-source-title">SOURCE</h3>
             </div>
+            <button
+              className={`primary-button compact-button news-scrape-btn${sourceScrapeSuccess ? " send-success" : ""}`}
+              type="button"
+              disabled={isScrapingSource || !draft.sourceId}
+              aria-label={
+                sourceScrapeSuccess ? "Scrape complete" : "Scrape source"
+              }
+              title={sourceScrapeSuccess ? "Scrape complete" : "Scrape source"}
+              onClick={() => {
+                void handleSourceScrape();
+              }}
+            >
+              {isScrapingSource
+                ? "..."
+                : sourceScrapeSuccess
+                  ? "Done"
+                  : "Scrape source"}
+            </button>
           </div>
 
           <p className="section-caption">
@@ -1167,6 +1231,12 @@ function ProfileForm({
           {sources.length === 0 ? (
             <p className="section-caption">
               No sources available. Add one in the Sources tab.
+            </p>
+          ) : null}
+
+          {sourceScrapeError ? (
+            <p className="form-error" role="alert">
+              {sourceScrapeError}
             </p>
           ) : null}
         </section>
@@ -1459,7 +1529,10 @@ function SourceForm({
       </div>
 
       {activeTab === "urls" ? (
-        <section className="profile-section" aria-labelledby="source-urls-title">
+        <section
+          className="profile-section"
+          aria-labelledby="source-urls-title"
+        >
           <div className="section-heading-row">
             <div>
               <p className="section-kicker">Section</p>
@@ -2363,6 +2436,7 @@ function ProfilesPage({
   const [isSavingSource, setIsSavingSource] = useState(false);
   const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
   const [deletingSourceId, setDeletingSourceId] = useState<number | null>(null);
+  const [scrapingSourceId, setScrapingSourceId] = useState<number | null>(null);
   const [isCreateNotificationDialogOpen, setIsCreateNotificationDialogOpen] =
     useState(false);
   const [notificationFormError, setNotificationFormError] = useState("");
@@ -2565,6 +2639,22 @@ function ProfilesPage({
     }
   }
 
+  async function handleScrapeSource(sourceId: number) {
+    setSourceFormError("");
+    setScrapingSourceId(sourceId);
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      await triggerSourceScrapeWorkflow(sourceId, actionTraceId);
+    } catch (error) {
+      setSourceFormError(
+        withTraceId("Could not trigger scrape workflow.", error, actionTraceId),
+      );
+    } finally {
+      setScrapingSourceId(null);
+    }
+  }
+
   const [createNotificationDraft, setCreateNotificationDraft] =
     useState<NotificationChannelDraft>(createDefaultNotificationChannelDraft());
   const [editNotificationDraft, setEditNotificationDraft] =
@@ -2731,6 +2821,16 @@ function ProfilesPage({
                   <div className="saved-profile-actions">
                     <button
                       type="button"
+                      className="primary-button compact-button"
+                      onClick={() => void handleScrapeSource(source.id)}
+                      disabled={scrapingSourceId !== null}
+                    >
+                      {scrapingSourceId === source.id
+                        ? "Scraping..."
+                        : "Scrape source"}
+                    </button>
+                    <button
+                      type="button"
                       className="ghost-button compact-button"
                       onClick={() => startEditSource(source)}
                     >
@@ -2751,6 +2851,12 @@ function ProfilesPage({
               ))}
             </ul>
           )}
+
+          {sourceFormError ? (
+            <p className="form-error" role="alert">
+              {sourceFormError}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -4278,11 +4384,6 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
   const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   const [currentPage, setCurrentPage] = useState(1);
   const [profileErrorCount, setProfileErrorCount] = useState(0);
-  const [isScraping, setIsScraping] = useState(false);
-  const [scrapeSuccess, setScrapeSuccess] = useState(false);
-  const scrapeSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   const itemsPerPage = 10;
 
   async function loadProfileErrorCount() {
@@ -4515,74 +4616,6 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
       ) : null}
 
       <div className="news-toolbar">
-        <button
-          className={`primary-button compact-button news-scrape-btn${scrapeSuccess ? " send-success" : ""}`}
-          type="button"
-          disabled={isScraping}
-          aria-label={scrapeSuccess ? "Scrape complete" : "Scrape news"}
-          title={scrapeSuccess ? "Scrape complete" : "Scrape news"}
-          onClick={async () => {
-            const actionTraceId = generateActionTraceId();
-            setIsScraping(true);
-            setScrapeSuccess(false);
-            try {
-              await triggerScrapeWorkflow(selectedProfile.id, actionTraceId);
-              setNewsError("");
-              void loadProfileErrorCount();
-              setScrapeSuccess(true);
-              if (scrapeSuccessTimerRef.current) {
-                clearTimeout(scrapeSuccessTimerRef.current);
-              }
-              scrapeSuccessTimerRef.current = setTimeout(() => {
-                setScrapeSuccess(false);
-              }, 2000);
-            } catch (error) {
-              setNewsError(
-                withTraceId(
-                  "Could not trigger scrape workflow.",
-                  error,
-                  actionTraceId,
-                ),
-              );
-            } finally {
-              setIsScraping(false);
-            }
-          }}
-        >
-          {isScraping ? (
-            "..."
-          ) : scrapeSuccess ? (
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <polyline
-                points="20 6 9 17 4 12"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path
-                d="M5 4h10l4 4v12H5z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M12 9v7M9 13l3 3 3-3"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          )}
-        </button>
         <label className="news-toggle" htmlFor="news-auto-refresh">
           <input
             id="news-auto-refresh"
@@ -4701,7 +4734,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
               <div className="news-row" role="row" key={item.id}>
                 <span role="cell">{item.title}</span>
                 <span role="cell">{item.summary}</span>
-                <span role="cell">{item.origin}</span>
+                <span role="cell">{item.origin || "-"}</span>
                 <span role="cell">{formatNewsTimestamp(item.timestamp)}</span>
                 <a
                   role="cell"
@@ -4778,9 +4811,11 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
   );
 }
 
-function ErrorsPage({ selectedProfile }: ContextPageProps) {
-  const navigate = useNavigate();
-  const location = useLocation();
+type ErrorsDisplayProps = {
+  selectedProfile: SavedProfile;
+};
+
+function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [errors, setErrors] = useState<SavedErrorItem[]>([]);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
@@ -4815,10 +4850,6 @@ function ErrorsPage({ selectedProfile }: ContextPageProps) {
   }
 
   async function loadErrors(options?: { refreshOnly?: boolean }) {
-    if (!selectedProfile) {
-      return;
-    }
-
     const refreshOnly = options?.refreshOnly ?? false;
     setErrorsLoadError("");
 
@@ -4836,11 +4867,6 @@ function ErrorsPage({ selectedProfile }: ContextPageProps) {
         "",
         actionTraceId,
       );
-
-      if (loadedErrors.length === 0) {
-        navigate("/news", { replace: true });
-        return;
-      }
 
       setErrors(loadedErrors);
       setLastRefreshedAt(new Date());
@@ -4879,19 +4905,11 @@ function ErrorsPage({ selectedProfile }: ContextPageProps) {
   }
 
   useEffect(() => {
-    if (!selectedProfile) {
-      setErrors([]);
-      setSelectedErrorId(null);
-      setErrorsLoadError("");
-      setLastRefreshedAt(null);
-      return;
-    }
-
     void loadErrors();
-  }, [selectedProfile?.id, location.pathname]);
+  }, [selectedProfile?.id]);
 
   useEffect(() => {
-    if (!selectedProfile || !autoRefreshEnabled) {
+    if (!autoRefreshEnabled) {
       return;
     }
 
@@ -4902,7 +4920,7 @@ function ErrorsPage({ selectedProfile }: ContextPageProps) {
     return () => {
       window.clearInterval(intervalHandle);
     };
-  }, [selectedProfile?.id, autoRefreshEnabled]);
+  }, [autoRefreshEnabled]);
 
   const filteredErrors = useMemo(() => {
     const queryTerms = searchTerm
@@ -4967,21 +4985,8 @@ function ErrorsPage({ selectedProfile }: ContextPageProps) {
     filteredErrors.find((errorItem) => errorItem.id === selectedErrorId) ??
     null;
 
-  if (!selectedProfile) {
-    return (
-      <section className="page" aria-labelledby="errors-title">
-        <h1 id="errors-title">Errors</h1>
-        <article className="panel empty-state">
-          <h3>No profile selected</h3>
-          <p>Select a profile from the header to inspect scrape errors.</p>
-        </article>
-      </section>
-    );
-  }
-
   return (
-    <section className="page errors-page" aria-labelledby="errors-title">
-      <h1 id="errors-title">{selectedProfile.name} - Errors</h1>
+    <>
       <p className="page-intro">
         Errors are displayed in red and represent issues from the latest scrape
         run for the active profile.
@@ -5215,6 +5220,27 @@ function ErrorsPage({ selectedProfile }: ContextPageProps) {
           </div>
         </ModalDialog>
       ) : null}
+    </>
+  );
+}
+
+function ErrorsPage({ selectedProfile }: ContextPageProps) {
+  if (!selectedProfile) {
+    return (
+      <section className="page" aria-labelledby="errors-title">
+        <h1 id="errors-title">Errors</h1>
+        <article className="panel empty-state">
+          <h3>No profile selected</h3>
+          <p>Select a profile from the header to inspect scrape errors.</p>
+        </article>
+      </section>
+    );
+  }
+
+  return (
+    <section className="page errors-page" aria-labelledby="errors-title">
+      <h1 id="errors-title">{selectedProfile.name} - Errors</h1>
+      <ErrorsDisplay selectedProfile={selectedProfile} />
     </section>
   );
 }
@@ -5242,6 +5268,7 @@ function App() {
     null,
   );
   const [selectedProfileErrorCount, setSelectedProfileErrorCount] = useState(0);
+  const [isErrorsModalOpen, setIsErrorsModalOpen] = useState(false);
 
   async function loadProfiles() {
     setIsLoadingProfiles(true);
@@ -5432,6 +5459,43 @@ function App() {
             isLoading={isLoadingProfiles}
             onSelect={setSelectedProfileId}
           />
+          {selectedProfileErrorCount > 0 ? (
+            <button
+              type="button"
+              className="error-nav-button"
+              onClick={() => setIsErrorsModalOpen(true)}
+              aria-label={`${selectedProfileErrorCount} error${selectedProfileErrorCount === 1 ? "" : "s"}`}
+              title="View errors"
+            >
+              <span className="error-nav-icon">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="20"
+                  height="20"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
+                  <path
+                    d="M12 8v4M12 16h.01"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+              <span className="error-nav-count">
+                {selectedProfileErrorCount}
+              </span>
+            </button>
+          ) : null}
           <nav aria-label="Main">
             <ul>
               <li>
@@ -5442,16 +5506,6 @@ function App() {
               </li>
               <li>
                 <Link to="/news">News</Link>
-              </li>
-              <li>
-                {selectedProfileErrorCount > 0 ? (
-                  <Link to="/errors" className="error-nav-link">
-                    <span>Errors</span>
-                    <span className="error-nav-count" aria-label="error count">
-                      {selectedProfileErrorCount}
-                    </span>
-                  </Link>
-                ) : null}
               </li>
             </ul>
           </nav>
@@ -5493,13 +5547,19 @@ function App() {
             path="/news"
             element={<NewsPage selectedProfile={selectedProfile} />}
           />
-          <Route
-            path="/errors"
-            element={<ErrorsPage selectedProfile={selectedProfile} />}
-          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+
+      {isErrorsModalOpen && selectedProfile ? (
+        <ModalDialog
+          title="Errors"
+          onClose={() => setIsErrorsModalOpen(false)}
+          className="errors-modal-card"
+        >
+          <ErrorsDisplay selectedProfile={selectedProfile} />
+        </ModalDialog>
+      ) : null}
     </div>
   );
 }

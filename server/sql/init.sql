@@ -18,6 +18,10 @@
 -- DDL – one file per table (order matters: no FKs yet)
 -- ============================================================
 \i server/sql/ddl/profiles_t.sql
+\i server/sql/ddl/sources_t.sql
+\i server/sql/ddl/source_urls_t.sql
+\i server/sql/ddl/source_rss_feeds_t.sql
+\i server/sql/ddl/source_last_scrape_t.sql
 \i server/sql/ddl/profile_urls_t.sql
 \i server/sql/ddl/profile_roles_t.sql
 \i server/sql/ddl/profile_tags_t.sql

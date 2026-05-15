@@ -1,62 +1,47 @@
 [
     {
-        "name": "AI LLM",
-        "description": "A profile for testing with LLMs",
+        "name": "AI Demo",
+        "description": "A profile AI news demonstration",
+        "systemPrompt": "You are an AI news assistant who focuses on news related to the tags and for the roles provided in this profile. You provide concise and informative summaries of the latest developments in the AI field, tailored to the interests of the users linked to this profile.",
         "useCustomSources": true,
         "tags": [
             "llm",
+            "openai",
+            "claude",
             "anthropic",
-            "claude"
+            "meta",
+            "agentic AI",
+            "MCP",
+            "RAG"
         ],
         "roles": [
             "Solution Architect",
             "Software Engineer",
-            "ML Engineer"
+            "Product Manager"
         ],
         "urls": [
             {
-                "url": "https://www.technologyreview.com/topic/artificial-intelligence/",
-                "description": "MIT Technology Review AI Coverage"
-            },
-            {
-                "url": "https://www.unite.ai/",
-                "description": "Unite AI News"
-            },
-            {
-                "url": "https://aiuniverseexplorer.com/ai-news-aggregator/",
-                "description": "AI Universe Explorer"
-            },
-            {
-                "url": "https://invalid/",
-                "description": "Invalid URL for validation testing"
+                "url": "https://ai.meta.com/blog/",
+                "description": "Meta AI Blog"
             }
         ],
         "rssFeeds": [
             {
-                "feedUrl": "https://planet-ai.net/rss.xml",
-                "title": "Planet AI",
-                "refreshCadence": "Every 30 minutes",
-                "format": "RSS 2.0",
-                "category": "LLM Updates"
+                "feedUrl": "https://openai.com/news/rss.xml",
+                "description": "OpenAI News RSS"
             },
             {
                 "feedUrl": "https://huggingface.co/blog/feed.xml",
-                "title": "Hugging Face Blog",
-                "refreshCadence": "Hourly",
-                "format": "RSS 2.0",
-                "category": "LLM Research"
+                "description": "Hugging Face Blog RSS"
             },
             {
-                "feedUrl": "https://invalid/rss.xml",
-                "title": "Invalid RSS",
-                "refreshCadence": "Every 30 minutes",
-                "format": "RSS 2.0",
-                "category": "Invalid Feed Testing"
+                "feedUrl": "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss",
+                "description": "Anthropic News RSS"
             }
         ],
         "_notificationProfile": {
-            "name": "Test Channel",
-            "description": "Test notification channel for development.",
+            "name": "AI Demo",
+            "description": "AI Demo notification channel for development.",
             "channels": [
                 {
                     "channelType": "email",
@@ -98,24 +83,15 @@
         "rssFeeds": [
             {
                 "feedUrl": "https://feeds.feedburner.com/oreilly/radar/atom",
-                "title": "OReilly Radar",
-                "refreshCadence": "Hourly",
-                "format": "Atom",
-                "category": "AI Engineering"
+                "description": "OReilly Radar RSS"
             },
             {
                 "feedUrl": "https://www.deeplearning.ai/the-batch/rss.xml",
-                "title": "DeepLearning.AI The Batch",
-                "refreshCadence": "Daily",
-                "format": "RSS 2.0",
-                "category": "Agent Research"
+                "description": "DeepLearning.AI The Batch RSS"
             },
             {
                 "feedUrl": "https://simonwillison.net/atom/everything/",
-                "title": "Simon Willison Everything",
-                "refreshCadence": "Hourly",
-                "format": "Atom",
-                "category": "AI Tools"
+                "description": "Simon Willison RSS"
             }
         ]
     },
@@ -150,31 +126,22 @@
         "rssFeeds": [
             {
                 "feedUrl": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
-                "title": "The Verge AI",
-                "refreshCadence": "Hourly",
-                "format": "RSS 2.0",
-                "category": "AI Industry"
+                "description": "The Verge AI RSS"
             },
             {
                 "feedUrl": "https://openai.com/blog/rss.xml",
-                "title": "OpenAI Blog",
-                "refreshCadence": "Daily",
-                "format": "RSS 2.0",
-                "category": "Model Releases"
+                "description": "OpenAI Blog RSS"
             },
             {
                 "feedUrl": "https://ai.googleblog.com/feeds/posts/default",
-                "title": "Google AI Blog",
-                "refreshCadence": "Daily",
-                "format": "Atom",
-                "category": "Model Research"
+                "description": "Google AI Blog RSS"
             }
         ]
     },
     {
         "name": "Error Test Profile",
         "description": "Dedicated profile for error indicator and profile switching tests.",
-        "useCustomSources": false,
+        "useCustomSources": true,
         "tags": [
             "errors",
             "switching",
@@ -185,8 +152,34 @@
             "SRE",
             "Platform Engineer"
         ],
-        "urls": [],
-        "rssFeeds": [],
+        "urls": [
+            {
+                "url": "https://status.openai.com/",
+                "description": "OpenAI Status"
+            },
+            {
+                "url": "https://www.githubstatus.com/",
+                "description": "GitHub Status"
+            },
+            {
+                "url": "https://status.slack.com/",
+                "description": "Slack Status"
+            }
+        ],
+        "rssFeeds": [
+            {
+                "feedUrl": "https://status.openai.com/history.rss",
+                "description": "OpenAI Status RSS"
+            },
+            {
+                "feedUrl": "https://www.githubstatus.com/history.rss",
+                "description": "GitHub Status RSS"
+            },
+            {
+                "feedUrl": "https://status.slack.com/feed/rss",
+                "description": "Slack Status RSS"
+            }
+        ],
         "_seedErrors": [
             {
                 "traceId": "e4e4f6dd2df74f34b7746e72e5f67011",

@@ -45,6 +45,8 @@ node server/scripts/seed-profiles.mjs
 
 Use this to seed profiles directly via SQL. This method does not require the API to be running.
 
+`seed.sql` generates each `news_t.news_id` deterministically as `SHA-256(link + title)` using `digest(..., 'sha256')`.
+
 ```bash
 psql "$DATABASE_URL" -f server/sql/seed.sql
 ```
@@ -59,6 +61,8 @@ psql -h localhost -U postgres -d news_scrapper -f server/sql/seed.sql
 
 Use this to seed sample profile-linked news rows directly via SQL.
 
+`seed-news.sql` generates each `news_t.news_id` deterministically as `SHA-256(link + title)` using `digest(..., 'sha256')`.
+
 ```bash
 psql "$DATABASE_URL" -f server/sql/seed-news.sql
 ```
@@ -68,6 +72,8 @@ Or via npm script:
 ```bash
 npm run seed:news:sql
 ```
+
+Note: SQL hash generation requires the `pgcrypto` extension. Ensure `server/sql/migrations/20260516_enable_pgcrypto.sql` (or `server/sql/init.sql`) has been applied.
 
 **Advantages:**
 
@@ -131,10 +137,10 @@ Edit `server/sql/seed-profiles.json` to modify predefined profiles:
 
 ## Default Baseline
 
-Default SQL seed baseline (`server/sql/seed.sql`) creates a profile-switching test baseline with 4 profiles (including `Error Test Profile`) and 3 child rows per profile in profile-linked FK tables:
+Default SQL seed baseline (`server/sql/seed.sql`) creates a profile-switching test baseline with 4 profiles (including `Error Test Profile`) and mostly 3 child rows per profile in profile-linked FK tables. The `AI Demo` profile intentionally has a single URL source from instructions:
 
 - **profiles_t:** 4
-- **profile_urls_t:** 12 total (3 per profile)
+- **profile_urls_t:** 10 total (`AI Demo` has 1, other profiles have 3)
 - **profile_tags_t:** 12 total (3 per profile)
 - **profile_roles_t:** 12 total (3 per profile)
 - **rss_feeds_t:** 12 total (3 per profile)
