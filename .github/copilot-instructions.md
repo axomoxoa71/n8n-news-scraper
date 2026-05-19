@@ -72,7 +72,7 @@
 
 - Source Name: AI Demo
 - This profile must be exatcly set-up as described here (not more and not less or different) to ensure that the seeded data is consistent and can be used for testing and development without manual adjustments.
-- Url: https://ai.meta.com/blog/
+- Url: https://ai.meta.com/blog/, https://www.anthropic.com/news, https://claude.com/blog
 - RSS: https://openai.com/news/rss.xml, https://huggingface.co/blog/feed.xml,https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml
 - Description: A source for AI news demonstration.
 
