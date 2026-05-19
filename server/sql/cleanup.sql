@@ -23,6 +23,7 @@ DROP TABLE IF EXISTS source_urls_t            CASCADE;
 DROP TABLE IF EXISTS sources_t                CASCADE;
 DROP TABLE IF EXISTS chats_t                  CASCADE;
 DROP TABLE IF EXISTS error_t                  CASCADE;
+DROP TABLE IF EXISTS news_tags_t              CASCADE;
 DROP TABLE IF EXISTS news_t                   CASCADE;
 DROP TABLE IF EXISTS rss_feeds_t              CASCADE;
 DROP TABLE IF EXISTS profile_tags_t           CASCADE;

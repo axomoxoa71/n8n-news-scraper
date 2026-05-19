@@ -90,7 +90,7 @@ error_templates AS (
     profile_name,
     trace_id,
     error_message,
-    error_description,
+    error_details,
     error_stack,
     error_http_code,
     node_name,
@@ -101,10 +101,11 @@ error_templates AS (
   )
 )
 INSERT INTO error_t (
-  profile_id,
+  external_ref_id,
+  external_ref_type,
   trace_id,
   error_message,
-  error_description,
+  error_details,
   error_stack,
   error_http_code,
   node_name,
@@ -114,10 +115,11 @@ INSERT INTO error_t (
   json
 )
 SELECT
-  profile.id,
+  profile.id::text,
+  'source',
   template.trace_id,
   template.error_message,
-  template.error_description,
+  template.error_details,
   template.error_stack,
   template.error_http_code,
   template.node_name,

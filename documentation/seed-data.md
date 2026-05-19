@@ -14,24 +14,25 @@
 This project uses a default seed baseline intended for testing and local development.
 
 By default, seed data provides 4 profiles (including a dedicated `Error Test Profile`) linked to 4 sources.
-Each source has 3 URLs and 3 RSS feeds, and each profile links to one source.
+Every source has 3 RSS feeds, while URL counts follow one explicit exception: `AI Demo` has exactly 1 instruction-defined URL and each other source has 3 URLs.
+Each profile links to one source.
 For `error_t`, only `Error Test Profile` is seeded, with 3 deterministic error rows.
 Only add extra records when a specific test scenario needs additional or specialized data.
 
 ## Default Baseline
 
-The default SQL seed baseline creates 4 profiles (including `Error Test Profile`) and 3 rows per profile/source in FK-backed tables:
+The default SQL seed baseline creates 4 profiles (including `Error Test Profile`) with deterministic row counts in FK-backed tables:
 
 - `profiles_t`: 4
 - `sources_t`: 4
-- `source_urls_t`: 12 total, with 3 rows per source
+- `source_urls_t`: 10 total (`AI Demo`: 1 URL, all other sources: 3 URLs each)
 - `source_rss_feeds_t`: 12 total, with 3 rows per source
 - `profile_tags_t`: 12 total, with 3 rows per profile
 - `profile_roles_t`: 12 total, with 3 rows per profile
 - `news_t`: 12 total, with 3 rows per profile
 - `error_t`: 3 total, all seeded for `Error Test Profile`
 - `notification_profiles_t`: 3
-- `notification_channels_t`: 9 total, with 3 rows per notification profile
+- `notification_channels_t`: 5 total (`AI Demo`: 1, `Slack Alerts`: 2, `Ops Alerts`: 2)
 
 ## Seed Files
 
@@ -43,7 +44,7 @@ The default SQL seed baseline creates 4 profiles (including `Error Test Profile`
   - `news_t.news_id` is generated deterministically as `SHA-256(link + title)` during insert.
 - `server/sql/seed-profiles.json`
   - API seeding payload containing 4 profile definitions: `AI Demo`, `Agent Ecosystem`, `Model Releases`, and `Error Test Profile`.
-  - `AI Demo` is seeded with the instruction-defined AI source set, including `https://ai.meta.com/blog/`, `https://openai.com/news/rss.xml`, `https://huggingface.co/blog/feed.xml`, and the Anthropic RSS mirror feed.
+  - `AI Demo` is seeded with the instruction-defined AI source set, including `https://ai.meta.com/blog/`, `https://openai.com/news/rss.xml`, `https://huggingface.co/blog/feed.xml`, and `https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml`.
   - `Error Test Profile` includes 3 deterministic seeded error records via API seeding.
 - `server/sql/cleanup.sql`
   - Drops application tables/functions to fully reset schema objects.

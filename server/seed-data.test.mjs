@@ -168,7 +168,7 @@ test("AI Demo source exists with required RSS set", async () => {
   for (const requiredFeed of [
     "https://openai.com/news/rss.xml",
     "https://huggingface.co/blog/feed.xml",
-    "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss",
+    "https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml",
   ]) {
     assert.ok(
       feeds.has(requiredFeed),
@@ -263,7 +263,7 @@ for (const profileName of [
     const profile = profiles.find((p) => p.name === profileName);
     assert.ok(profile, `Profile "${profileName}" not found`);
     const news = await fetchJson(
-      `${apiBaseUrl}/api/news?profileId=${profile.id}`,
+      `${apiBaseUrl}/api/news?sourceId=${profile.sourceId}`,
     );
     assert.equal(
       news.length,
@@ -295,10 +295,7 @@ test("AI Demo profile contains https://ai.meta.com/blog/ URL", async () => {
   const profile = profiles.find((p) => p.name === "AI Demo");
   assert.ok(profile, 'Profile "AI Demo" not found');
   const urls = (profile.urls ?? []).map((u) => u.url);
-  assert.ok(
-    urls.length >= 3,
-    `AI Demo expected >= 3 URLs, found: ${JSON.stringify(urls)}`,
-  );
+  assert.equal(urls.length, 1, `AI Demo expected 1 URL, found: ${JSON.stringify(urls)}`);
   assert.ok(
     urls.includes("https://ai.meta.com/blog/"),
     `AI Demo missing Meta AI blog URL, found: ${JSON.stringify(urls)}`,
@@ -327,16 +324,16 @@ test("AI Demo profile contains https://huggingface.co/blog/feed.xml RSS feed", a
   );
 });
 
-test("AI Demo profile contains anthropic_news_rss RSS feed", async () => {
+test("AI Demo profile contains GitHub OPML RSS feed reference", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
   const profile = profiles.find((p) => p.name === "AI Demo");
   assert.ok(profile, 'Profile "AI Demo" not found');
   const feeds = (profile.rssFeeds ?? []).map((f) => f.feedUrl);
   assert.ok(
     feeds.includes(
-      "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.xml",
+      "https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml",
     ),
-    `AI Demo missing Anthropic RSS feed, found: ${JSON.stringify(feeds)}`,
+    `AI Demo missing OPML feed reference, found: ${JSON.stringify(feeds)}`,
   );
 });
 
@@ -374,13 +371,15 @@ test("Error Test Profile has exactly 3 seeded errors", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
   const profile = profiles.find((p) => p.name === "Error Test Profile");
   assert.ok(profile, 'Profile "Error Test Profile" not found');
-  const errors = await fetchJson(
-    `${apiBaseUrl}/api/errors?profileId=${profile.id}`,
+  const errors = (await fetchJson(`${apiBaseUrl}/api/errors`)).filter(
+    (errorItem) =>
+      errorItem.externalRefType === "source" &&
+      errorItem.externalRefId === String(profile.sourceId),
   );
   assert.equal(
     errors.length,
     3,
-    `Error Test Profile expected 3 errors, got ${errors.length}`,
+    `Error Test Profile source expected 3 errors, got ${errors.length}`,
   );
 });
 
@@ -388,8 +387,10 @@ test("Error Test Profile errors have deterministic trace IDs", async () => {
   const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
   const profile = profiles.find((p) => p.name === "Error Test Profile");
   assert.ok(profile, 'Profile "Error Test Profile" not found');
-  const errors = await fetchJson(
-    `${apiBaseUrl}/api/errors?profileId=${profile.id}`,
+  const errors = (await fetchJson(`${apiBaseUrl}/api/errors`)).filter(
+    (errorItem) =>
+      errorItem.externalRefType === "source" &&
+      errorItem.externalRefId === String(profile.sourceId),
   );
   const traceIds = errors.map((e) => e.traceId);
   const expected = [

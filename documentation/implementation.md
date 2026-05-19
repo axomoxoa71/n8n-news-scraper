@@ -112,8 +112,9 @@ graph TD
 - Provides profile-scoped chat interaction against collected news.
 - Uses:
   - `src/api/chatbot.ts`
-  - `POST /api/chats`
-  - `GET /api/profiles/:id/chats`
+  - `POST /api/chats/dispatch` for synchronous UI responses
+  - `GET /api/profiles/:id/chat-history` for history screen data
+- Uses `POST /api/chats` as a separate persistent integration endpoint (not the default Chat UI submit flow).
 - Displays chat history per profile via backend endpoints.
 - `chats_t` is treated as an n8n integration persistence table; the UI does not read or write this table directly.
 - Shows backend trace id on failures for correlation with logs.
@@ -188,12 +189,13 @@ graph TD
 12. The API returns normalized profile objects to the browser, which updates root selector context immediately.
 13. Delete removes the selected profile through the API and then removes it from the rendered list.
 14. Chatbot and News views read the currently selected profile context from root state.
-15. Chatbot submits a question to `/api/chats`; backend triggers n8n via webhook and persists workflow message rows in `chats_t`.
-16. Chatbot history is loaded from `/api/profiles/:id/chats`; UI interaction remains API-based and does not directly access `chats_t`.
-17. The News page requests profile-scoped rows from `/api/news`; the backend returns all rows for the selected profile without role-based filtering.
-18. News filtering is applied client-side against title and summary, with optional favorites-only filtering.
-19. Favorite toggles are persisted through `PUT /api/news/{id}/favorite` and reflected immediately in rendered rows.
-20. External article links open in a new tab with `rel="noreferrer"`.
+15. Chatbot UI submits a question to `/api/chats/dispatch`; backend triggers n8n via webhook and returns synchronous answer payload for immediate rendering.
+16. Persistent chatbot integration remains available via `/api/chats`, which writes workflow message rows in `chats_t`.
+17. Chatbot history is loaded from `/api/profiles/:id/chat-history`; UI interaction remains API-based and does not directly access `chats_t`.
+18. The News page requests profile-scoped rows from `/api/news`; the backend returns all rows for the selected profile without role-based filtering.
+19. News filtering is applied client-side against title and summary, with optional favorites-only filtering.
+20. Favorite toggles are persisted through `PUT /api/news/{id}/favorite` and reflected immediately in rendered rows.
+21. External article links open in a new tab with `rel="noreferrer"`.
 
 ## Observability and Trace Context
 

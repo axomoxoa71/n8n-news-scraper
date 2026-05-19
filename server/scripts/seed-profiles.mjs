@@ -224,8 +224,10 @@ async function verifySeedState(expectedProfiles) {
       : 0;
 
     if (expectedErrors > 0) {
-      const profileErrors = await fetchJson(
-        `${apiBaseUrl}/api/errors?profileId=${actualProfile.id}`,
+      const profileErrors = (await fetchJson(`${apiBaseUrl}/api/errors`)).filter(
+        (errorItem) =>
+          errorItem.externalRefType === "source" &&
+          errorItem.externalRefId === String(actualProfile.sourceId),
       );
 
       if (profileErrors.length !== expectedErrors) {

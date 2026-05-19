@@ -88,18 +88,86 @@ paths:
           description: Profile deleted
         "404":
           description: Profile not found
+  /api/sources:
+    get:
+      summary: List available sources
+      responses:
+        "200":
+          description: Sources returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Source"
+    post:
+      summary: Create a new source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SourceInput"
+      responses:
+        "201":
+          description: Source created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Source"
+        "400":
+          description: Validation error
+  /api/sources/{id}:
+    put:
+      summary: Update an existing source
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SourceInput"
+      responses:
+        "200":
+          description: Source updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Source"
+        "400":
+          description: Validation error
+        "404":
+          description: Source not found
+    delete:
+      summary: Delete an existing source
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Source deleted
+        "404":
+          description: Source not found
   /api/news:
     get:
-      summary: List news items for a selected profile
+      summary: List news items for a selected source
       parameters:
-        - name: profileId
+        - name: sourceId
           in: query
           required: true
           schema:
             type: integer
       responses:
         "200":
-          description: Profile news returned successfully
+          description: Source news returned successfully
           content:
             application/json:
               schema:
@@ -107,7 +175,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/NewsItem"
         "400":
-          description: Invalid profileId query value
+          description: Invalid sourceId query value
     post:
       summary: Create a news item
       requestBody:
@@ -152,14 +220,14 @@ paths:
         "400":
           description: Validation error
         "404":
-          description: News item not found for profile
+          description: News item not found for source
   /api/errors:
     get:
-      summary: List scrape errors for a selected profile
+      summary: List scrape errors with optional profile filter
       parameters:
         - name: profileId
           in: query
-          required: true
+          required: false
           schema:
             type: integer
         - name: search
@@ -167,9 +235,20 @@ paths:
           required: false
           schema:
             type: string
+        - name: timeFrame
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [lastHour, lastDay, lastWeek, lastMonth, all]
+        - name: externalRefId
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
-          description: Profile errors returned successfully
+          description: Errors returned successfully
           content:
             application/json:
               schema:
@@ -177,7 +256,19 @@ paths:
                 items:
                   $ref: "#/components/schemas/ErrorItem"
         "400":
-          description: Invalid profileId query value
+          description: Invalid profileId query value when provided
+  /api/errors/external-references:
+    get:
+      summary: List distinct error external references
+      responses:
+        "200":
+          description: External references returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ErrorExternalReference"
     post:
       summary: Create a scrape error entry for a profile
       requestBody:
@@ -197,7 +288,7 @@ paths:
           description: Validation error
   /api/errors/{id}:
     get:
-      summary: Get one scrape error for a selected profile
+      summary: Get one scrape error with optional profile filter
       parameters:
         - name: id
           in: path
@@ -206,7 +297,7 @@ paths:
             type: integer
         - name: profileId
           in: query
-          required: true
+          required: false
           schema:
             type: integer
       responses:
@@ -304,6 +395,28 @@ paths:
       responses:
         "202":
           description: Trigger request accepted by backend
+        "404":
+          description: Profile or linked information channel not found
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/news/source/scrape:
+    post:
+      summary: Trigger scrape webhook for a source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceId]
+              properties:
+                sourceId:
+                  type: integer
+      responses:
+        "202":
+          description: Trigger request accepted by backend
           content:
             application/json:
               schema:
@@ -315,10 +428,171 @@ paths:
                     example: accepted
         "400":
           description: Validation error
+        "404":
+          description: Source not found
         "502":
           description: Upstream scrape webhook call failed
         "503":
           description: Scrape webhook configuration is missing
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: accepted
+        "400":
+          description: Validation error
+        "502":
+          description: Upstream scrape webhook call failed
+        "503":
+          description: Scrape webhook configuration is missing
+  /api/profiles/{id}/chats:
+    get:
+      summary: List persisted chat rows for a profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Persisted chat rows returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+        "400":
+          description: Invalid profile id
+  /api/profiles/{id}/chat-history:
+    get:
+      summary: List chat history messages for a profile with optional filters
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: sessionId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: quality
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+        - name: timePeriod
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [last_hour, last_day, last_week, last_month, all]
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, assistant, all]
+      responses:
+        "200":
+          description: Chat history returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatHistoryMessage"
+        "400":
+          description: Validation error
+  /api/chats/quick-reply:
+    get:
+      summary: List quick-reply prompts for chatbot
+      responses:
+        "200":
+          description: Quick replies returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatQuickReply"
+  /api/chats/{id}:
+    get:
+      summary: Get one persisted chat row by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Chat message returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+        "400":
+          description: Validation error
+        "404":
+          description: Chat message not found
+  /api/chats/dispatch:
+    post:
+      summary: Dispatch chatbot message for synchronous UI response (non-persistent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatMessageInput"
+      responses:
+        "200":
+          description: Chatbot synchronous response completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatDispatchResponse"
+        "400":
+          description: Validation error
+        "404":
+          description: Profile not found
+        "502":
+          description: Webhook returned failed or invalid response
+        "503":
+          description: Chatbot webhook configuration is missing
+        "504":
+          description: Chatbot webhook timed out
+  /api/chats:
+    post:
+      summary: Create persistent chatbot message and update response status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatMessageInput"
+      responses:
+        "201":
+          description: Persisted chat row created/updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+        "400":
+          description: Validation error
+        "404":
+          description: Profile not found
+        "502":
+          description: Webhook returned failed or invalid response
+        "503":
+          description: Chatbot webhook configuration is missing
+        "504":
+          description: Chatbot webhook timed out
 components:
   schemas:
     ProfileUrl:
@@ -395,17 +669,63 @@ components:
           properties:
             id:
               type: integer
+    SourceUrlEntry:
+      type: object
+      required: [url]
+      properties:
+        id:
+          type: integer
+        url:
+          type: string
+          format: uri
+        description:
+          type: string
+    SourceRssFeedEntry:
+      type: object
+      required: [feedUrl]
+      properties:
+        id:
+          type: integer
+        feedUrl:
+          type: string
+          format: uri
+        description:
+          type: string
+    SourceInput:
+      type: object
+      required: [name, urls, rssFeeds]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        urls:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceUrlEntry"
+        rssFeeds:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceRssFeedEntry"
+    Source:
+      allOf:
+        - $ref: "#/components/schemas/SourceInput"
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: integer
     NewsItem:
       type: object
       required:
-        [id, newsId, profileId, title, summary, link, timestamp, favorite]
+        [id, newsId, sourceId, title, summary, link, timestamp, favorite, ragStatus]
       properties:
         id:
           type: integer
         newsId:
           type: string
           description: News identifier stored as text. Seeded records use SHA-256(link + title).
-        profileId:
+        sourceId:
           type: integer
         title:
           type: string
@@ -421,14 +741,18 @@ components:
           format: date-time
         favorite:
           type: boolean
+        ragStatus:
+          type: string
+          enum: [NEW, PROCESSING, DONE]
+          description: RAG enrichment processing status. Defaults to NEW.
     NewsItemInput:
       type: object
-      required: [newsId, profileId, title, summary, link]
+      required: [newsId, sourceId, title, summary, link]
       properties:
         newsId:
           type: string
           description: News identifier stored as text. Seeded records use SHA-256(link + title).
-        profileId:
+        sourceId:
           type: integer
         title:
           type: string
@@ -444,11 +768,15 @@ components:
           format: date-time
         favorite:
           type: boolean
+        ragStatus:
+          type: string
+          enum: [NEW, PROCESSING, DONE]
+          description: Optional on create; defaults to NEW when omitted.
     NewsFavoriteUpdate:
       type: object
-      required: [profileId, favorite]
+      required: [sourceId, favorite]
       properties:
-        profileId:
+        sourceId:
           type: integer
         favorite:
           type: boolean
@@ -508,6 +836,14 @@ components:
             updatedTs:
               type: string
               format: date-time
+    ErrorExternalReference:
+      type: object
+      required: [type, id]
+      properties:
+        type:
+          type: string
+        id:
+          type: string
     NotificationProfileInput:
       type: object
       required: [name, channels]
@@ -548,3 +884,98 @@ components:
           properties:
             id:
               type: integer
+    ChatMessageInput:
+      type: object
+      required: [profileId, sessionId, message]
+      properties:
+        profileId:
+          type: integer
+        sessionId:
+          type: string
+        message:
+          type: string
+    ChatMessage:
+      type: object
+      required:
+        [
+          id,
+          profileId,
+          sessionId,
+          message,
+          traceId,
+          status,
+          createdTs,
+          updatedTs,
+        ]
+      properties:
+        id:
+          type: integer
+        profileId:
+          type: integer
+        sessionId:
+          type: string
+        message:
+          type: string
+        agentResponse:
+          type: string
+          nullable: true
+        n8nExecutionId:
+          type: string
+          nullable: true
+        traceId:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        createdTs:
+          type: string
+          format: date-time
+        updatedTs:
+          type: string
+          format: date-time
+    ChatDispatchResponse:
+      type: object
+      required: [sessionId, message, agentResponse, status]
+      properties:
+        sessionId:
+          type: string
+        message:
+          type: string
+        agentResponse:
+          type: string
+        executionId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [completed]
+    ChatQuickReply:
+      type: object
+      required: [name, prompt]
+      properties:
+        name:
+          type: string
+        prompt:
+          type: string
+    ChatHistoryMessage:
+      type: object
+      required: [id, sessionId, message, role, createdTs]
+      properties:
+        id:
+          type: integer
+        profileId:
+          type: integer
+          nullable: true
+        sessionId:
+          type: string
+        message:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        quality:
+          type: integer
+          nullable: true
+        createdTs:
+          type: string
+          format: date-time

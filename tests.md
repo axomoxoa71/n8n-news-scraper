@@ -604,9 +604,9 @@ All tests in this section are in `server/seed-data.test.mjs`.
 
 - Verifies the `Model Releases` profile is present.
 
-#### {Profile}: has at least 3 URLs _(for each of the 4 profiles)_
+#### {Profile}: has expected URL count _(AI Demo=1, others=3)_
 
-- Verifies each profile has a minimum of 3 URL entries.
+- Verifies URL counts follow the seed baseline rule: `AI Demo` has exactly 1 instruction-defined URL and each remaining profile has 3 URLs.
 
 #### {Profile}: has at least 3 RSS feeds _(for each of the 4 profiles)_
 
@@ -626,11 +626,11 @@ All tests in this section are in `server/seed-data.test.mjs`.
 
 #### AI Demo profile contains specific valid URLs
 
-- Verifies `https://ai.meta.com/blog/`, `https://openai.com/news/`, and `https://www.anthropic.com/news` are present.
+- Verifies `https://ai.meta.com/blog/` is present as the single instruction-defined URL.
 
 #### AI Demo profile contains specific RSS feeds
 
-- Verifies `https://openai.com/news/rss.xml`, `https://huggingface.co/blog/feed.xml`, and the Anthropic RSS feed URL are present.
+- Verifies `https://openai.com/news/rss.xml`, `https://huggingface.co/blog/feed.xml`, and `https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml` are present.
 
 #### AI Demo profile tags include llm, openai, claude
 
@@ -648,9 +648,9 @@ All tests in this section are in `server/seed-data.test.mjs`.
 
 - Verifies the 3 fixed trace IDs (`e4e4f6dd2df74f34b7746e72e5f67011/012/013`) are present.
 
-#### Test Channel notification profile exists with correct email
+#### AI Demo notification profile exists with correct email
 
-- Verifies the `Test Channel` notification profile exists with `robert.bernhard71@gmail.com`.
+- Verifies the `AI Demo` notification profile exists with `robert.bernhard71@gmail.com`.
 
 ## How to Run
 

@@ -14,6 +14,18 @@ BEGIN
   END IF;
 END $$;
 
+-- chats_t -> sources_t
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chats_t_source_id_fkey'
+  ) THEN
+    ALTER TABLE chats_t
+      ADD CONSTRAINT chats_t_source_id_fkey
+        FOREIGN KEY (source_id) REFERENCES sources_t(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
 -- source_urls_t -> sources_t
 DO $$
 BEGIN
@@ -99,15 +111,15 @@ BEGIN
   END IF;
 END $$;
 
--- error_t -> profiles_t
+-- news_tags_t -> news_t
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'error_t_profile_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'news_tags_t_news_id_fkey'
   ) THEN
-    ALTER TABLE error_t
-      ADD CONSTRAINT error_t_profile_id_fkey
-        FOREIGN KEY (profile_id) REFERENCES profiles_t(id) ON DELETE CASCADE;
+    ALTER TABLE news_tags_t
+      ADD CONSTRAINT news_tags_t_news_id_fkey
+        FOREIGN KEY (news_id) REFERENCES news_t(id) ON DELETE CASCADE;
   END IF;
 END $$;
 

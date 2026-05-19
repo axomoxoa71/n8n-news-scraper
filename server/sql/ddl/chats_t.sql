@@ -3,6 +3,7 @@
 CREATE TABLE chats_t (
   id                  SERIAL       PRIMARY KEY,
   session_id          TEXT         NOT NULL,
+  source_id           INTEGER,
   message             TEXT         NOT NULL,
   role                TEXT         NOT NULL,
   quality             INTEGER,
@@ -12,6 +13,9 @@ CREATE TABLE chats_t (
 
 -- Index for session correlation
 CREATE INDEX chats_session_id_idx ON chats_t(session_id);
+
+-- Index for source-based chat history lookup
+CREATE INDEX chats_source_id_idx ON chats_t(source_id);
 
 -- Check constraint for valid role values
 ALTER TABLE chats_t ADD CONSTRAINT chats_role_chk

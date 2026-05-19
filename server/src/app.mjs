@@ -11,10 +11,6 @@ import {
 const TRACEPARENT_PATTERN =
   /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})(?:-.+)?$/i;
 const PROFILE_CONTEXT_PATTERN = /\bprofile\b/i;
-const PROFILE_SYSTEM_PROMPT_CONTEXT = [
-  "Profile Id: 1",
-  "Profile Name: AI Demo",
-].join("\n");
 
 const QUICK_REPLY_CONFIG_PATH = new URL("./quick-reply.json", import.meta.url);
 
@@ -78,7 +74,7 @@ function parseTraceparent(headerValue) {
   };
 }
 
-function enrichMessageWithProfileContext(message) {
+function enrichMessageWithProfileContext(message, profile, source) {
   if (typeof message !== "string") {
     return "";
   }
@@ -88,7 +84,19 @@ function enrichMessageWithProfileContext(message) {
     return trimmedMessage;
   }
 
-  return `${trimmedMessage}\n\n${PROFILE_SYSTEM_PROMPT_CONTEXT}`;
+  const contextLines = [];
+
+  if (Number.isInteger(profile?.sourceId) && profile.sourceId > 0) {
+    contextLines.push(`Source Id: ${profile.sourceId}`);
+  }
+
+  if (typeof source?.name === "string" && source.name.trim().length > 0) {
+    contextLines.push(`Source Name: ${source.name.trim()}`);
+  }
+
+  return contextLines.length > 0
+    ? `${trimmedMessage}\n\n${contextLines.join("\n")}`
+    : trimmedMessage;
 }
 
 function createTraceContext(request) {
@@ -298,6 +306,10 @@ function parseErrorInput(body) {
   const executionId =
     typeof body?.executionId === "string" ? body.executionId.trim() : "";
   const traceId = typeof body?.traceId === "string" ? body.traceId.trim() : "";
+  const externalRefName =
+    typeof body?.externalRefName === "string"
+      ? body.externalRefName.trim() || null
+      : null;
   const rawHttpCode = body?.errorHttpCode;
   const errorHttpCode =
     rawHttpCode !== undefined && rawHttpCode !== null
@@ -358,6 +370,7 @@ function parseErrorInput(body) {
       workflowName,
       workflowId,
       traceId: traceId || randomHex(16),
+      externalRefName,
       json:
         body?.json && typeof body.json === "object" && !Array.isArray(body.json)
           ? body.json
@@ -966,14 +979,18 @@ export function createNewsScraperApi({
   });
 
   app.get("/api/errors", async (request, response, next) => {
-    const profileId = parseProfileId(request.query.profileId);
+    const hasProfileIdFilter =
+      request.query.profileId !== undefined && request.query.profileId !== "";
+    const parsedProfileId = hasProfileIdFilter
+      ? parseProfileId(request.query.profileId)
+      : null;
 
-    if (profileId === null) {
+    if (hasProfileIdFilter && parsedProfileId === null) {
       sendError(
         request,
         response,
         400,
-        "profileId query parameter must be a positive integer.",
+        "profileId query parameter must be a positive integer when provided.",
       );
       return;
     }
@@ -981,10 +998,23 @@ export function createNewsScraperApi({
     const search =
       typeof request.query.search === "string" ? request.query.search : "";
 
+    const timeFrame = ["lastHour", "lastDay", "lastWeek", "lastMonth", "all"].includes(
+      String(request.query.timeFrame)
+    )
+      ? request.query.timeFrame
+      : "lastHour";
+
+    const externalRefId =
+      typeof request.query.externalRefId === "string"
+        ? request.query.externalRefId
+        : null;
+
     try {
       const errors = await resolveRepository(request).listErrors(
-        profileId,
+        parsedProfileId,
         search,
+        timeFrame,
+        externalRefId,
       );
       response.json(errors);
     } catch (error) {
@@ -992,16 +1022,29 @@ export function createNewsScraperApi({
     }
   });
 
+  app.get("/api/errors/external-references", async (request, response, next) => {
+    try {
+      const references = await resolveRepository(request).listDistinctExternalReferences();
+      response.json(references);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/errors/:id", async (request, response, next) => {
-    const profileId = parseProfileId(request.query.profileId);
+    const hasProfileIdFilter =
+      request.query.profileId !== undefined && request.query.profileId !== "";
+    const parsedProfileId = hasProfileIdFilter
+      ? parseProfileId(request.query.profileId)
+      : null;
     const errorId = parseProfileId(request.params.id);
 
-    if (profileId === null) {
+    if (hasProfileIdFilter && parsedProfileId === null) {
       sendError(
         request,
         response,
         400,
-        "profileId query parameter must be a positive integer.",
+        "profileId query parameter must be a positive integer when provided.",
       );
       return;
     }
@@ -1013,8 +1056,8 @@ export function createNewsScraperApi({
 
     try {
       const errorItem = await resolveRepository(request).getError(
-        profileId,
         errorId,
+        parsedProfileId,
       );
 
       if (!errorItem) {
@@ -1375,8 +1418,22 @@ export function createNewsScraperApi({
     }
 
     try {
+      const repositoryInstance = resolveRepository(request);
+      const profiles = await repositoryInstance.listProfiles();
+      const selectedProfile = profiles.find((profile) => profile.id === profileId);
+
+      if (!selectedProfile) {
+        sendError(request, response, 404, "Profile not found.");
+        return;
+      }
+
+      if (!Number.isInteger(selectedProfile.sourceId) || selectedProfile.sourceId <= 0) {
+        response.json([]);
+        return;
+      }
+
       const chats =
-        await resolveRepository(request).getChatsByProfileId(profileId);
+        await repositoryInstance.getChatsBySourceId(selectedProfile.sourceId);
       response.json(chats);
     } catch (error) {
       next(error);
@@ -1437,8 +1494,22 @@ export function createNewsScraperApi({
     const sinceTs = getChatHistorySinceTimestamp(timePeriod);
 
     try {
-      const chats = await resolveRepository(request).listChatHistoryByProfileId(
-        profileId,
+      const repositoryInstance = resolveRepository(request);
+      const profiles = await repositoryInstance.listProfiles();
+      const selectedProfile = profiles.find((profile) => profile.id === profileId);
+
+      if (!selectedProfile) {
+        sendError(request, response, 404, "Profile not found.");
+        return;
+      }
+
+      if (!Number.isInteger(selectedProfile.sourceId) || selectedProfile.sourceId <= 0) {
+        response.json([]);
+        return;
+      }
+
+      const chats = await repositoryInstance.listChatHistoryBySourceId(
+        selectedProfile.sourceId,
         {
           sessionIdQuery,
           quality,
@@ -1540,6 +1611,14 @@ export function createNewsScraperApi({
           (profile) => profile.id === validationResult.value.profileId,
         ) ?? null;
 
+      const sources =
+        typeof repositoryInstance.listSources === "function"
+          ? await repositoryInstance.listSources()
+          : [];
+      const selectedSource =
+        sources.find((source) => source.id === selectedProfile?.sourceId) ??
+        null;
+
       if (!selectedProfile) {
         sendError(request, response, 404, "Profile not found.");
         return;
@@ -1547,8 +1626,12 @@ export function createNewsScraperApi({
 
       const webhookPayload = {
         sessionId: validationResult.value.sessionId,
+        sourceId: selectedProfile.sourceId,
+        sourceName: selectedSource?.name ?? null,
         message: enrichMessageWithProfileContext(
           validationResult.value.message,
+          selectedProfile,
+          selectedSource,
         ),
       };
 
@@ -1876,20 +1959,35 @@ export function createNewsScraperApi({
           (profile) => profile.id === validationResult.value.profileId,
         ) ?? null;
 
+      const sources =
+        typeof repositoryInstance.listSources === "function"
+          ? await repositoryInstance.listSources()
+          : [];
+      const selectedSource =
+        sources.find((source) => source.id === selectedProfile?.sourceId) ??
+        null;
+
       if (!selectedProfile) {
         sendError(request, response, 404, "Profile not found.");
         return;
       }
 
       const createdChat = await repositoryInstance.createChat(
-        validationResult.value,
+        {
+          ...validationResult.value,
+          sourceId: selectedProfile.sourceId,
+        },
         traceContext.traceId,
       );
 
       const webhookPayload = {
         sessionId: validationResult.value.sessionId,
+        sourceId: selectedProfile.sourceId,
+        sourceName: selectedSource?.name ?? null,
         message: enrichMessageWithProfileContext(
           validationResult.value.message,
+          selectedProfile,
+          selectedSource,
         ),
       };
 

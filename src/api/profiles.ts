@@ -551,17 +551,27 @@ export async function triggerSourceScrapeWorkflow(
 }
 
 export async function listErrors(
-  profileId: number,
+  profileId: number | null,
   search = "",
+  timeFrame: "lastHour" | "lastDay" | "lastWeek" | "lastMonth" | "all" = "lastHour",
+  externalRefId: string | null = null,
   actionTraceId?: string,
 ): Promise<SavedErrorItem[]> {
   const searchValue = search.trim();
-  const searchParams = new URLSearchParams({
-    profileId: String(profileId),
-  });
+  const searchParams = new URLSearchParams();
+
+  if (typeof profileId === "number" && Number.isInteger(profileId) && profileId > 0) {
+    searchParams.set("profileId", String(profileId));
+  }
 
   if (searchValue) {
     searchParams.set("search", searchValue);
+  }
+
+  searchParams.set("timeFrame", timeFrame);
+
+  if (externalRefId) {
+    searchParams.set("externalRefId", externalRefId);
   }
 
   const route = buildApiRoute(`/errors?${searchParams.toString()}`);
@@ -576,12 +586,33 @@ export async function listErrors(
   >;
 }
 
+export async function listExternalReferenceIds(actionTraceId?: string): Promise<{ type: string; id: string }[]> {
+  const route = buildApiRoute("/errors/external-references");
+  const { response, traceId, method } = await apiFetch(
+    route,
+    {},
+    actionTraceId,
+  );
+
+  return handleApiResponse(response, { traceId, route, method }) as Promise<
+    { type: string; id: string }[]
+  >;
+}
+
 export async function getError(
-  profileId: number,
+  profileId: number | null,
   errorId: number,
   actionTraceId?: string,
 ): Promise<SavedErrorItem> {
-  const route = buildApiRoute(`/errors/${errorId}?profileId=${profileId}`);
+  const searchParams = new URLSearchParams();
+  if (typeof profileId === "number" && Number.isInteger(profileId) && profileId > 0) {
+    searchParams.set("profileId", String(profileId));
+  }
+
+  const querySuffix = searchParams.toString();
+  const route = buildApiRoute(
+    `/errors/${errorId}${querySuffix ? `?${querySuffix}` : ""}`,
+  );
   const { response, traceId, method } = await apiFetch(
     route,
     {},

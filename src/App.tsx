@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Link,
   Navigate,
@@ -29,6 +31,7 @@ import {
   updateNotificationChannel,
   triggerSourceScrapeWorkflow,
   listErrors,
+  listExternalReferenceIds,
   deleteNotificationChannel as deleteNotificationChannelRequest,
 } from "./api/profiles";
 import {
@@ -541,6 +544,7 @@ type ProfileFormProps = {
   notificationChannels?: NotificationChannel[];
   onSubmit: (input: ProfileInput) => Promise<void>;
   onCancel: () => void;
+  onReloadErrors?: () => Promise<void>;
 };
 
 type SourceFormProps = {
@@ -551,6 +555,7 @@ type SourceFormProps = {
   headingId?: string;
   onSubmit: (input: SourceInput) => Promise<void>;
   onCancel: () => void;
+  onReloadErrors?: () => Promise<void>;
 };
 
 type NotificationChannelFormProps = {
@@ -797,6 +802,97 @@ function findDispatchResponseText(value: unknown): string | null {
   return null;
 }
 
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
+
+function splitTrailingUrlPunctuation(candidateUrl: string) {
+  let url = candidateUrl;
+  let trailing = "";
+
+  while (url.length > 0) {
+    const lastCharacter = url.at(-1);
+
+    if (
+      lastCharacter !== "." &&
+      lastCharacter !== "," &&
+      lastCharacter !== "!" &&
+      lastCharacter !== "?" &&
+      lastCharacter !== ";" &&
+      lastCharacter !== ":" &&
+      lastCharacter !== ")" &&
+      lastCharacter !== "]"
+    ) {
+      break;
+    }
+
+    trailing = `${lastCharacter}${trailing}`;
+    url = url.slice(0, -1);
+  }
+
+  return { url, trailing };
+}
+
+function renderTextWithHyperlinks(text: string) {
+  const segments: (string | JSX.Element)[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  URL_PATTERN.lastIndex = 0;
+
+  while ((match = URL_PATTERN.exec(text)) !== null) {
+    const [matchedUrl] = match;
+    const startIndex = match.index;
+    const endIndex = startIndex + matchedUrl.length;
+
+    if (startIndex > lastIndex) {
+      segments.push(text.slice(lastIndex, startIndex));
+    }
+
+    const { url, trailing } = splitTrailingUrlPunctuation(matchedUrl);
+
+    if (url.length > 0) {
+      segments.push(
+        <a
+          key={`${startIndex}-${url}`}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {url}
+        </a>,
+      );
+    }
+
+    if (trailing.length > 0) {
+      segments.push(trailing);
+    }
+
+    lastIndex = endIndex;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push(text.slice(lastIndex));
+  }
+
+  return segments.length > 0 ? segments : [text];
+}
+
+function renderMarkdown(text: string) {
+  return (
+    <div className="markdown-content">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: (props) => (
+            <a {...props} target="_blank" rel="noopener noreferrer" />
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 const NEWS_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 function formatNewsTimestamp(value: string) {
@@ -907,6 +1003,7 @@ function ProfileForm({
   notificationChannels,
   onSubmit,
   onCancel,
+  onReloadErrors,
 }: ProfileFormProps) {
   const [draft, setDraft] = useState<ProfileDraft>(initialDraft);
   const [activeTab, setActiveTab] = useState<EditorTab>("source");
@@ -951,6 +1048,9 @@ function ProfileForm({
     try {
       await triggerSourceScrapeWorkflow(draft.sourceId, actionTraceId);
       setSourceScrapeSuccess(true);
+      if (onReloadErrors) {
+        void onReloadErrors();
+      }
 
       if (sourceScrapeSuccessTimerRef.current) {
         clearTimeout(sourceScrapeSuccessTimerRef.current);
@@ -1433,6 +1533,7 @@ function SourceForm({
   headingId,
   onSubmit,
   onCancel,
+  onReloadErrors,
 }: SourceFormProps) {
   const [draft, setDraft] = useState<SourceDraft>(initialDraft);
   const [activeTab, setActiveTab] = useState<SourceEditorTab>("urls");
@@ -2400,6 +2501,7 @@ type ProfilesPageProps = {
   onProfilesChanged: (profiles: SavedProfile[]) => void;
   onSourcesChanged: (sources: Source[]) => void;
   onReloadProfiles: () => Promise<void>;
+  onReloadErrors: () => Promise<void>;
   onNotificationChannelsChanged: (profiles: NotificationChannel[]) => void;
 };
 
@@ -2412,6 +2514,7 @@ function ProfilesPage({
   onProfilesChanged,
   onSourcesChanged,
   onReloadProfiles,
+  onReloadErrors,
   onNotificationChannelsChanged,
 }: ProfilesPageProps) {
   const [activeTab, setActiveTab] = useState<
@@ -2646,6 +2749,7 @@ function ProfilesPage({
 
     try {
       await triggerSourceScrapeWorkflow(sourceId, actionTraceId);
+      void onReloadErrors();
     } catch (error) {
       setSourceFormError(
         withTraceId("Could not trigger scrape workflow.", error, actionTraceId),
@@ -3055,6 +3159,7 @@ function ProfilesPage({
             notificationChannels={notificationChannels}
             onSubmit={handleUpdateProfile}
             onCancel={cancelEditingProfile}
+            onReloadErrors={onReloadErrors}
           />
         </ModalDialog>
       ) : null}
@@ -3081,6 +3186,7 @@ function ProfilesPage({
               setIsCreateDialogOpen(false);
               setFormError("");
             }}
+            onReloadErrors={onReloadErrors}
           />
         </ModalDialog>
       ) : null}
@@ -3112,6 +3218,7 @@ function ProfilesPage({
             headingId="edit-source-title"
             onSubmit={handleUpdateSource}
             onCancel={cancelEditSource}
+            onReloadErrors={onReloadErrors}
           />
         </ModalDialog>
       ) : null}
@@ -3135,6 +3242,7 @@ function ProfilesPage({
               setIsCreateSourceDialogOpen(false);
               setSourceFormError("");
             }}
+            onReloadErrors={onReloadErrors}
           />
         </ModalDialog>
       ) : null}
@@ -3717,15 +3825,19 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
               <div key={message.id} className="chat-turn">
                 <article className="chat-bubble chat-bubble-user">
                   <p className="chat-role">You</p>
-                  <p className="chat-text">{message.message}</p>
+                  <p className="chat-text">
+                    {renderTextWithHyperlinks(message.message)}
+                  </p>
                 </article>
                 <article className="chat-bubble chat-bubble-assistant">
                   <p className="chat-role">Assistant</p>
-                  <p className="chat-text">
-                    {message.failed
-                      ? `The chatbot agent failed to respond. ${message.agentResponse}`
-                      : message.agentResponse}
-                  </p>
+                  <div className="chat-text">
+                    {renderMarkdown(
+                      message.failed
+                        ? `The chatbot agent failed to respond. ${message.agentResponse}`
+                        : message.agentResponse,
+                    )}
+                  </div>
                 </article>
               </div>
             ))}
@@ -3733,7 +3845,9 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
               <div className="chat-turn" aria-live="polite">
                 <article className="chat-bubble chat-bubble-user">
                   <p className="chat-role">You</p>
-                  <p className="chat-text">{pendingQuestion}</p>
+                  <p className="chat-text">
+                    {renderTextWithHyperlinks(pendingQuestion)}
+                  </p>
                 </article>
                 <article className="chat-bubble chat-bubble-assistant">
                   <p className="chat-role">Assistant</p>
@@ -4272,7 +4386,7 @@ function ChatHistoryPage({ selectedProfile }: ContextPageProps) {
                 </span>
                 <span role="cell">{row.role}</span>
                 <span role="cell" className="chat-history-message-cell">
-                  {row.message}
+                  {renderTextWithHyperlinks(row.message)}
                 </span>
                 <span role="cell">{row.quality ?? "-"}</span>
                 <span role="cell" className="chat-history-action-cell">
@@ -4387,15 +4501,13 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
   const itemsPerPage = 10;
 
   async function loadProfileErrorCount() {
-    if (!selectedProfile) {
-      return;
-    }
-
     try {
       const actionTraceId = generateActionTraceId();
       const currentErrors = await listErrors(
-        selectedProfile.id,
+        null,
         "",
+        "all",
+        null,
         actionTraceId,
       );
       setProfileErrorCount(currentErrors.length);
@@ -4605,8 +4717,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
       {profileErrorCount > 0 ? (
         <article className="news-errors-warning" role="alert">
           <strong>
-            {profileErrorCount} error{profileErrorCount === 1 ? "" : "s"} from
-            the latest scrape run
+            {profileErrorCount} error{profileErrorCount === 1 ? "" : "s"} detected
           </strong>
           <p>
             Open the <Link to="/errors">Errors page</Link> to inspect message,
@@ -4699,6 +4810,19 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
             }}
           />
           <span className="news-filter-label">Favorites only</span>
+          <button
+            type="button"
+            className="primary-button compact-button"
+            onClick={() => {
+              setSearchTerm("");
+              setSortOrder("latest");
+              setShowFavoritesOnly(false);
+            }}
+            title="Reset all filters to defaults"
+            aria-label="Reset all filters to defaults"
+          >
+            Reset
+          </button>
         </div>
       </div>
 
@@ -4811,12 +4935,11 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
   );
 }
 
-type ErrorsDisplayProps = {
-  selectedProfile: SavedProfile;
-};
-
-function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
+function ErrorsDisplay() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [timeFrame, setTimeFrame] = useState<"lastHour" | "lastDay" | "lastWeek" | "lastMonth" | "all">("all");
+  const [selectedExternalRef, setSelectedExternalRef] = useState<string | null>(null);
+  const [externalReferences, setExternalReferences] = useState<{ type: string; id: string }[]>([]);
   const [errors, setErrors] = useState<SavedErrorItem[]>([]);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [isLoadingErrors, setIsLoadingErrors] = useState(false);
@@ -4829,6 +4952,7 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
   } | null>(null);
   const [copyFeedback, setCopyFeedback] = useState("");
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const errorDetailsPanelRef = useRef<HTMLDivElement>(null);
 
   async function handleCopyModalContent() {
     if (!detailsModalState) {
@@ -4849,6 +4973,17 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
     }
   }
 
+  async function loadExternalReferences() {
+    const actionTraceId = generateActionTraceId();
+    try {
+      const refs = await listExternalReferenceIds(actionTraceId);
+      setExternalReferences(refs);
+    } catch {
+      // Silently fail to allow error screen to still work
+      setExternalReferences([]);
+    }
+  }
+
   async function loadErrors(options?: { refreshOnly?: boolean }) {
     const refreshOnly = options?.refreshOnly ?? false;
     setErrorsLoadError("");
@@ -4863,8 +4998,10 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
 
     try {
       const loadedErrors = await listErrors(
-        selectedProfile.id,
-        "",
+        null,
+        searchTerm,
+        timeFrame,
+        selectedExternalRef,
         actionTraceId,
       );
 
@@ -4886,7 +5023,7 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
       });
     } catch (error) {
       setErrorsLoadError(
-        withTraceId("Could not load profile errors.", error, actionTraceId),
+        withTraceId("Could not load errors.", error, actionTraceId),
       );
       setErrors([]);
       setSelectedErrorId(null);
@@ -4905,8 +5042,12 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
   }
 
   useEffect(() => {
+    void loadExternalReferences();
+  }, []);
+
+  useEffect(() => {
     void loadErrors();
-  }, [selectedProfile?.id]);
+  }, [searchTerm, timeFrame, selectedExternalRef]);
 
   useEffect(() => {
     if (!autoRefreshEnabled) {
@@ -4923,46 +5064,13 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
   }, [autoRefreshEnabled]);
 
   const filteredErrors = useMemo(() => {
-    const queryTerms = searchTerm
-      .toLocaleLowerCase()
-      .split(/\s+/)
-      .map((term) => term.trim())
-      .filter(Boolean);
-
-    let filtered = errors;
-
-    if (queryTerms.length > 0) {
-      filtered = errors.filter((errorItem) => {
-        const searchableText = [
-          errorItem.id,
-          errorItem.traceId,
-          errorItem.executionId,
-          errorItem.errorMessage,
-          errorItem.errorDescription ?? "",
-          errorItem.errorStack ?? "",
-          errorItem.errorHttpCode !== null ? errorItem.errorHttpCode : "",
-          errorItem.nodeName,
-          errorItem.nodeType,
-          errorItem.workflowName,
-          errorItem.workflowId,
-          JSON.stringify(errorItem.json ?? {}),
-          errorItem.createdTs,
-          errorItem.updatedTs,
-        ]
-          .join(" ")
-          .toLocaleLowerCase();
-
-        return queryTerms.every((term) => searchableText.includes(term));
-      });
-    }
-
     // Sort by created timestamp, latest first
-    return [...filtered].sort((a, b) => {
+    return [...errors].sort((a, b) => {
       const timeA = new Date(a.createdTs).getTime();
       const timeB = new Date(b.createdTs).getTime();
       return timeB - timeA;
     });
-  }, [errors, searchTerm]);
+  }, [errors]);
 
   useEffect(() => {
     setSelectedErrorId((current) => {
@@ -4985,11 +5093,18 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
     filteredErrors.find((errorItem) => errorItem.id === selectedErrorId) ??
     null;
 
+  useEffect(() => {
+    // Scroll to top of error details panel when a new error is selected
+    if (errorDetailsPanelRef.current && selectedError) {
+      errorDetailsPanelRef.current.scrollTop = 0;
+    }
+  }, [selectedError]);
+
   return (
     <>
       <p className="page-intro">
-        Errors are displayed in red and represent issues from the latest scrape
-        run for the active profile.
+        Errors are displayed in red and represent issues from scrape runs across
+        all profiles.
       </p>
 
       <div className="news-toolbar">
@@ -5050,6 +5165,53 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
             aria-label="Filter errors"
           />
         </label>
+        
+        <label className="field time-frame-field">
+          <span>Time Frame</span>
+          <select
+            value={timeFrame}
+            onChange={(event) => setTimeFrame(event.target.value as "lastHour" | "lastDay" | "lastWeek" | "lastMonth" | "all")}
+            aria-label="Filter by time frame"
+          >
+            <option value="lastHour">Last Hour</option>
+            <option value="lastDay">Last Day</option>
+            <option value="lastWeek">Last Week</option>
+            <option value="lastMonth">Last Month</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+
+        <label className="field external-ref-field">
+          <span>External Reference</span>
+          <select
+            value={selectedExternalRef ?? ""}
+            onChange={(event) => {
+              setSelectedExternalRef(event.target.value || null);
+            }}
+            aria-label="Filter by external reference"
+          >
+            <option value="">All References</option>
+            {externalReferences.map((ref) => (
+              <option key={`${ref.type}:${ref.id}`} value={ref.id}>
+                {ref.type}: {ref.id}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          className="primary-button compact-button"
+          onClick={() => {
+            setSearchTerm("");
+            setTimeFrame("all");
+            setSelectedExternalRef(null);
+          }}
+          title="Reset all filters to defaults"
+          aria-label="Reset all filters to defaults"
+        >
+          Reset
+        </button>
       </div>
 
       {errorsLoadError ? (
@@ -5061,7 +5223,7 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
       {isLoadingErrors ? (
         <article className="panel empty-state">
           <h3>Loading errors</h3>
-          <p>Fetching errors for this profile.</p>
+          <p>Fetching errors.</p>
         </article>
       ) : filteredErrors.length === 0 ? (
         <article className="panel empty-state">
@@ -5071,7 +5233,12 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
       ) : (
         <div className="errors-layout">
           <div className="panel errors-list-panel">
-            <h2>Error list</h2>
+            <div className="error-list-header">
+              <h2>Error list</h2>
+              <span className="error-count-badge">
+                {filteredErrors.length}
+              </span>
+            </div>
             <ul className="error-list" aria-label="Profile errors">
               {filteredErrors.map((errorItem) => (
                 <li key={errorItem.id}>
@@ -5100,12 +5267,21 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
             </ul>
           </div>
 
-          <div className="panel errors-detail-panel">
+          <div className="panel errors-detail-panel" ref={errorDetailsPanelRef}>
             <h2>Error details</h2>
             {selectedError ? (
               <dl className="error-detail-grid">
                 <dt>ID</dt>
                 <dd>{selectedError.id}</dd>
+
+                <dt>External Reference ID</dt>
+                <dd>{selectedError.externalRefId ?? <em>—</em>}</dd>
+
+                <dt>External Reference Type</dt>
+                <dd>{selectedError.externalRefType ?? <em>—</em>}</dd>
+
+                <dt>External Reference Name</dt>
+                <dd>{selectedError.externalRefName ?? <em>—</em>}</dd>
 
                 <dt>Trace ID</dt>
                 <dd>{selectedError.traceId}</dd>
@@ -5224,23 +5400,11 @@ function ErrorsDisplay({ selectedProfile }: ErrorsDisplayProps) {
   );
 }
 
-function ErrorsPage({ selectedProfile }: ContextPageProps) {
-  if (!selectedProfile) {
-    return (
-      <section className="page" aria-labelledby="errors-title">
-        <h1 id="errors-title">Errors</h1>
-        <article className="panel empty-state">
-          <h3>No profile selected</h3>
-          <p>Select a profile from the header to inspect scrape errors.</p>
-        </article>
-      </section>
-    );
-  }
-
+function ErrorsPage() {
   return (
     <section className="page errors-page" aria-labelledby="errors-title">
-      <h1 id="errors-title">{selectedProfile.name} - Errors</h1>
-      <ErrorsDisplay selectedProfile={selectedProfile} />
+      <h1 id="errors-title">Errors</h1>
+      <ErrorsDisplay />
     </section>
   );
 }
@@ -5288,6 +5452,23 @@ function App() {
       );
     } finally {
       setIsLoadingProfiles(false);
+    }
+  }
+
+  async function loadErrorCount() {
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      const currentErrors = await listErrors(
+        null,
+        "",
+        "all",
+        null,
+        actionTraceId,
+      );
+      setSelectedProfileErrorCount(currentErrors.length);
+    } catch {
+      setSelectedProfileErrorCount(0);
     }
   }
 
@@ -5368,49 +5549,28 @@ function App() {
   );
 
   useEffect(() => {
-    if (!selectedProfile) {
-      setSelectedProfileErrorCount(0);
-      return;
-    }
-
-    // Clear stale count while switching profiles, then load fresh profile-scoped count.
+    // Clear stale count while switching contexts, then load a global count.
     setSelectedProfileErrorCount(0);
-
-    const activeProfileId = selectedProfile.id;
 
     let isCancelled = false;
 
-    async function loadErrorCount() {
-      const actionTraceId = generateActionTraceId();
-
-      try {
-        const currentErrors = await listErrors(
-          activeProfileId,
-          "",
-          actionTraceId,
-        );
-
-        if (!isCancelled) {
-          setSelectedProfileErrorCount(currentErrors.length);
-        }
-      } catch {
-        if (!isCancelled) {
-          setSelectedProfileErrorCount(0);
-        }
+    async function loadErrorCountWithCancellation() {
+      if (!isCancelled) {
+        await loadErrorCount();
       }
     }
 
-    void loadErrorCount();
+    void loadErrorCountWithCancellation();
 
     const intervalHandle = window.setInterval(() => {
-      void loadErrorCount();
+      void loadErrorCountWithCancellation();
     }, 30_000);
 
     return () => {
       isCancelled = true;
       window.clearInterval(intervalHandle);
     };
-  }, [selectedProfile?.id]);
+  }, []);
 
   function handleProfilesChanged(nextProfiles: SavedProfile[]) {
     setProfiles(nextProfiles);
@@ -5529,6 +5689,7 @@ function App() {
                 onProfilesChanged={handleProfilesChanged}
                 onSourcesChanged={handleSourcesChanged}
                 onReloadProfiles={loadProfiles}
+                onReloadErrors={loadErrorCount}
                 onNotificationChannelsChanged={
                   handleNotificationChannelsChanged
                 }
@@ -5547,17 +5708,21 @@ function App() {
             path="/news"
             element={<NewsPage selectedProfile={selectedProfile} />}
           />
+          <Route
+            path="/errors"
+            element={<ErrorsPage />}
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
-      {isErrorsModalOpen && selectedProfile ? (
+      {isErrorsModalOpen ? (
         <ModalDialog
           title="Errors"
           onClose={() => setIsErrorsModalOpen(false)}
           className="errors-modal-card"
         >
-          <ErrorsDisplay selectedProfile={selectedProfile} />
+          <ErrorsDisplay />
         </ModalDialog>
       ) : null}
     </div>

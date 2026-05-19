@@ -1,14 +1,14 @@
 [
     {
         "name": "Top 10 News",
-        "prompt": "Provide the top 10 news stories of the day for selected profile over the past 24 hours, including a brief summary and sentiment analysis for each story."
+        "prompt": "Provide the top 10 news for selected profile from today, including a title,summary, url, and published date for each story. Show it as markdown table."
     },
     {
         "name": "Generate Tag Heat Map",
-        "prompt": "Generate a heat map chart showing the frequency of different tags in the news articles related to this profile over the past week."
+        "prompt": "Generate a heat map chart showing the frequency of different tags in the news articles related to this profile over the past week. Use the tool **query_news** to retrieve the necessary data."
     },
     {
         "name": "Top 10 Negative News",
-        "prompt": "List the top 10 negative news stories affecting this profile and highlight downside risk factors."
+        "prompt": "Provide the top 10 negative news for selected profile from today, including a title,summary, url, and published date for each story. Show it as markdown table."
     }
 ]

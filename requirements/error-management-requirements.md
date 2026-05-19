@@ -12,19 +12,19 @@
 
 ## Purpose
 
-Define requirements for collecting, validating, storing, searching, and presenting profile-scoped scrape and workflow errors with traceable diagnostics.
+Define requirements for collecting, validating, storing, searching, and presenting scrape and workflow errors with traceable diagnostics.
 
 ## Functional Requirements
 
-1. The API must expose profile-scoped error listing through `GET /api/errors?profileId={id}` with optional search query.
-2. The API must expose profile-scoped error details through `GET /api/errors/:id?profileId={id}`.
+1. The API must expose global error listing through `GET /api/errors` with optional search query and optional `profileId` filter.
+2. The API must expose error details through `GET /api/errors/:id` with optional `profileId` filter.
 3. The API must allow creating error entries through `POST /api/errors` with required workflow and execution metadata.
 4. Error creation must validate required fields: `profileId`, `errorMessage`, `executionId`, `nodeName`, `nodeType`, `workflowName`, `workflowId`.
 5. `errorHttpCode`, when provided, must be validated as a 3-digit integer (100-999).
-6. The UI must show an Errors page scoped to the active profile and support free-text search across key error fields.
+6. The UI must show an Errors page across all profiles by default and support free-text search across key error fields.
 7. The UI must auto-refresh and manual-refresh error data and display last refresh time.
 8. The UI must provide details view capabilities for large fields (message, stack, payload) and support copy-to-clipboard.
-9. If no errors exist for the active profile, the UI may redirect back to News flow.
+9. If no errors exist globally, the UI must keep the Errors page available and show a clear empty state.
 10. Starting a new scrape run must clear prior errors for the selected profile before processing fresh results.
 
 ## Non-Functional Requirements
@@ -45,7 +45,7 @@ Define requirements for collecting, validating, storing, searching, and presenti
 
 ## Acceptance Criteria
 
-1. Calling `GET /api/errors` without valid `profileId` returns handled `400` validation error.
+1. Calling `GET /api/errors` without `profileId` returns global results; if `profileId` is provided and invalid, the API returns handled `400` validation error.
 2. Creating an error without any required field returns handled `400` validation error.
 3. Creating an error with invalid `errorHttpCode` (outside 100-999) returns handled `400` validation error.
 4. Errors page filters list results using user-entered search terms and keeps newest items first.

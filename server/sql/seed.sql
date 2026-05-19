@@ -7,6 +7,7 @@ BEGIN;
 TRUNCATE TABLE
   notification_channels_t,
   error_t,
+  news_tags_t,
   news_t,
   source_rss_feeds_t,
   source_urls_t,
@@ -74,7 +75,7 @@ INSERT INTO source_rss_feeds_t (
 VALUES
   (1, 0, 'https://openai.com/news/rss.xml', 'OpenAI News RSS'),
   (1, 1, 'https://huggingface.co/blog/feed.xml', 'Hugging Face Blog RSS'),
-  (1, 2, 'https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss', 'Anthropic News RSS'),
+    (1, 2, 'https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml', 'AI News OPML'),
   (2, 0, 'https://feeds.feedburner.com/oreilly/radar/atom', 'OReilly Radar RSS'),
   (2, 1, 'https://venturebeat.com/category/ai/feed/', 'VentureBeat AI RSS'),
   (2, 2, 'https://www.theregister.com/machine_learning/headlines.atom', 'The Register ML RSS'),
@@ -298,13 +299,15 @@ FROM (
     )
 ) AS seed_item(source_id, title, summary, origin, link, age_interval, favorite);
 
--- 3 error rows for Error Test Profile (profile-switching test baseline)
+-- 3 error rows for Error Test Profile source (profile-switching test baseline)
 INSERT INTO error_t (
-  profile_id,
+  external_ref_id,
+  external_ref_type,
+  external_ref_name,
   trace_id,
-  instance_id,
+  execution_id,
   error_message,
-  error_description,
+  error_details,
   error_stack,
   error_http_code,
   node_name,
@@ -315,7 +318,9 @@ INSERT INTO error_t (
 )
 VALUES
   (
-    4,
+    '4',
+    'source',
+    'Error Test Profile',
     'e4e4f6dd2df74f34b7746e72e5f67011',
     'exec-seed-001',
     'Synthetic switching test error',
@@ -329,7 +334,9 @@ VALUES
     jsonb_build_object('phase', 'test', 'seedType', 'switching')
   ),
   (
-    4,
+    '4',
+    'source',
+    'Error Test Profile',
     'e4e4f6dd2df74f34b7746e72e5f67012',
     'exec-seed-002',
     'Synthetic payload parse failure',
@@ -343,7 +350,9 @@ VALUES
     jsonb_build_object('phase', 'parse', 'seedType', 'switching')
   ),
   (
-    4,
+    '4',
+    'source',
+    'Error Test Profile',
     'e4e4f6dd2df74f34b7746e72e5f67013',
     'exec-seed-003',
     'Synthetic downstream timeout',

@@ -35,8 +35,8 @@
                 "description": "Hugging Face Blog RSS"
             },
             {
-                "feedUrl": "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss",
-                "description": "Anthropic News RSS"
+                "feedUrl": "https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml",
+                "description": "AI News OPML"
             }
         ],
         "_notificationProfile": {

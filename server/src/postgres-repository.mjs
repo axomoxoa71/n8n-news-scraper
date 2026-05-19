@@ -183,17 +183,24 @@ function mapNewsRows(newsRows) {
     link: row.link,
     timestamp: (row.published_ts ?? row.created_ts).toISOString(),
     favorite: row.favorite,
+    ragStatus: row.rag_status ?? 'NEW',
   }));
 }
 
 function mapErrorRows(errorRows) {
   return errorRows.map((row) => ({
     id: row.id,
-    profileId: row.profile_id,
+    profileId:
+      row.external_ref_type === "profile" && row.external_ref_id !== null
+        ? Number(row.external_ref_id)
+        : null,
+    externalRefId: row.external_ref_id ?? null,
+    externalRefType: row.external_ref_type ?? null,
+    externalRefName: row.external_ref_name ?? null,
     traceId: row.trace_id,
-    executionId: row.instance_id,
+    executionId: row.execution_id,
     errorMessage: row.error_message,
-    errorDescription: row.error_description ?? null,
+    errorDescription: row.error_details ?? null,
     errorStack: row.error_stack ?? null,
     errorHttpCode: row.error_http_code ?? null,
     nodeName: row.node_name,
@@ -825,7 +832,8 @@ export function createPostgresProfilesRepository(options) {
             link,
             published_ts,
             created_ts,
-            favorite
+            favorite,
+            rag_status
           FROM news_t
           WHERE source_id = $1
           ORDER BY published_ts DESC, id DESC
@@ -853,7 +861,8 @@ export function createPostgresProfilesRepository(options) {
             link,
             published_ts,
             created_ts,
-            favorite
+            favorite,
+            rag_status
         `,
         [newsId, sourceId, favorite],
       );
@@ -892,7 +901,8 @@ export function createPostgresProfilesRepository(options) {
             link,
             published_ts,
             created_ts,
-            favorite
+            favorite,
+            rag_status
         `,
         [
           newsInput.newsId,
@@ -908,86 +918,180 @@ export function createPostgresProfilesRepository(options) {
 
       return mapNewsRows(result.rows)[0];
     },
-    async listErrors(profileId, searchTerm = "") {
+    async listErrors(
+      profileId = null,
+      searchTerm = "",
+      timeFrame = "lastHour",
+      externalRefId = null,
+    ) {
       const normalizedSearchTerms = String(searchTerm ?? "")
         .trim()
         .split(/\s+/)
         .filter(Boolean);
 
+      // Calculate timestamp for time frame filtering
+      let timeframeCondition = "";
+      const now = new Date();
+      let cutoffDate = new Date();
+
+      switch (timeFrame) {
+        case "lastHour":
+          cutoffDate.setHours(cutoffDate.getHours() - 1);
+          break;
+        case "lastDay":
+          cutoffDate.setDate(cutoffDate.getDate() - 1);
+          break;
+        case "lastWeek":
+          cutoffDate.setDate(cutoffDate.getDate() - 7);
+          break;
+        case "lastMonth":
+          cutoffDate.setMonth(cutoffDate.getMonth() - 1);
+          break;
+        case "all":
+        default:
+          // No time frame filtering
+          break;
+      }
+
+      const params = [normalizedSearchTerms];
+      let profileCondition = "";
+
+      if (Number.isInteger(profileId) && profileId > 0) {
+        profileCondition =
+          "AND e.external_ref_type = 'profile' AND e.external_ref_id = $2::text";
+        params.push(String(profileId));
+      }
+
+      if (timeFrame !== "all") {
+        timeframeCondition = `AND e.created_ts >= $${params.length + 1}::timestamptz`;
+        params.push(cutoffDate.toISOString());
+      }
+
+      let externalRefCondition = "";
+      if (externalRefId) {
+        externalRefCondition = `AND e.external_ref_id = $${params.length + 1}::text`;
+        params.push(externalRefId);
+      }
+
       const result = await pool.query(
         `
           SELECT
-            id,
-            profile_id,
-            trace_id,
-            instance_id,
-            error_message,
-            error_description,
-            error_stack,
-            error_http_code,
-            node_name,
-            node_type,
-            workflow_name,
-            workflow_id,
-            json,
-            created_ts,
-            updated_ts
-          FROM error_t
-          WHERE profile_id = $1
+            e.id,
+            e.external_ref_id,
+            e.external_ref_type,
+            COALESCE(e.external_ref_name, profile_ref.name) AS external_ref_name,
+            e.trace_id,
+            e.execution_id,
+            e.error_message,
+            e.error_details,
+            e.error_stack,
+            e.error_http_code,
+            e.node_name,
+            e.node_type,
+            e.workflow_name,
+            e.workflow_id,
+            e.json,
+            e.created_ts,
+            e.updated_ts
+          FROM error_t AS e
+          LEFT JOIN profiles_t AS profile_ref
+            ON e.external_ref_type = 'profile'
+            AND e.external_ref_id ~ '^[0-9]+$'
+            AND profile_ref.id = e.external_ref_id::int
+          WHERE 1=1
+            ${profileCondition}
+            ${timeframeCondition}
+            ${externalRefCondition}
             AND (
-              cardinality($2::text[]) = 0
+              cardinality($1::text[]) = 0
               OR NOT EXISTS (
                 SELECT 1
-                FROM unnest($2::text[]) AS term
+                FROM unnest($1::text[]) AS term
                 WHERE NOT (
-                  CAST(id AS TEXT) ILIKE '%' || term || '%'
-                  OR trace_id ILIKE '%' || term || '%'
-                  OR instance_id ILIKE '%' || term || '%'
-                  OR error_message ILIKE '%' || term || '%'
-                  OR error_description ILIKE '%' || term || '%'
-                  OR error_stack ILIKE '%' || term || '%'
-                  OR CAST(error_http_code AS TEXT) ILIKE '%' || term || '%'
-                  OR node_name ILIKE '%' || term || '%'
-                  OR node_type ILIKE '%' || term || '%'
-                  OR workflow_name ILIKE '%' || term || '%'
-                  OR workflow_id ILIKE '%' || term || '%'
-                  OR CAST(json AS TEXT) ILIKE '%' || term || '%'
-                  OR CAST(created_ts AS TEXT) ILIKE '%' || term || '%'
-                  OR CAST(updated_ts AS TEXT) ILIKE '%' || term || '%'
+                  CAST(e.id AS TEXT) ILIKE '%' || term || '%'
+                  OR e.external_ref_id ILIKE '%' || term || '%'
+                  OR e.external_ref_type ILIKE '%' || term || '%'
+                  OR COALESCE(e.external_ref_name, profile_ref.name, '') ILIKE '%' || term || '%'
+                  OR e.trace_id ILIKE '%' || term || '%'
+                  OR e.execution_id ILIKE '%' || term || '%'
+                  OR e.error_message ILIKE '%' || term || '%'
+                  OR e.error_details ILIKE '%' || term || '%'
+                  OR e.error_stack ILIKE '%' || term || '%'
+                  OR CAST(e.error_http_code AS TEXT) ILIKE '%' || term || '%'
+                  OR e.node_name ILIKE '%' || term || '%'
+                  OR e.node_type ILIKE '%' || term || '%'
+                  OR e.workflow_name ILIKE '%' || term || '%'
+                  OR e.workflow_id ILIKE '%' || term || '%'
+                  OR CAST(e.json AS TEXT) ILIKE '%' || term || '%'
+                  OR CAST(e.created_ts AS TEXT) ILIKE '%' || term || '%'
+                  OR CAST(e.updated_ts AS TEXT) ILIKE '%' || term || '%'
                 )
               )
             )
-          ORDER BY created_ts DESC, id DESC
+          ORDER BY e.created_ts DESC, e.id DESC
         `,
-        [profileId, normalizedSearchTerms],
+        params,
       );
 
       return mapErrorRows(result.rows);
     },
-    async getError(profileId, errorId) {
+    
+    async listDistinctExternalReferences() {
+      const result = await pool.query(
+        `
+          SELECT DISTINCT
+            external_ref_type,
+            external_ref_id
+          FROM error_t
+          WHERE external_ref_type IS NOT NULL
+            AND external_ref_id IS NOT NULL
+          ORDER BY external_ref_type, external_ref_id
+        `,
+      );
+
+      return result.rows.map((row) => ({
+        type: row.external_ref_type,
+        id: row.external_ref_id,
+      }));
+    },
+    async getError(errorId, profileId = null) {
+      const hasProfileFilter = Number.isInteger(profileId) && profileId > 0;
       const result = await pool.query(
         `
           SELECT
-            id,
-            profile_id,
-            trace_id,
-            instance_id,
-            error_message,
-            error_description,
-            error_stack,
-            error_http_code,
-            node_name,
-            node_type,
-            workflow_name,
-            workflow_id,
-            json,
-            created_ts,
-            updated_ts
-          FROM error_t
-          WHERE profile_id = $1 AND id = $2
+            e.id,
+            e.external_ref_id,
+            e.external_ref_type,
+            COALESCE(e.external_ref_name, profile_ref.name) AS external_ref_name,
+            e.trace_id,
+            e.execution_id,
+            e.error_message,
+            e.error_details,
+            e.error_stack,
+            e.error_http_code,
+            e.node_name,
+            e.node_type,
+            e.workflow_name,
+            e.workflow_id,
+            e.json,
+            e.created_ts,
+            e.updated_ts
+          FROM error_t AS e
+          LEFT JOIN profiles_t AS profile_ref
+            ON e.external_ref_type = 'profile'
+            AND e.external_ref_id ~ '^[0-9]+$'
+            AND profile_ref.id = e.external_ref_id::int
+          WHERE e.id = $1
+            AND (
+              $2::text IS NULL
+              OR (
+                e.external_ref_type = 'profile'
+                AND e.external_ref_id = $2::text
+              )
+            )
           LIMIT 1
         `,
-        [profileId, errorId],
+        [errorId, hasProfileFilter ? String(profileId) : null],
       );
 
       return result.rowCount === 0 ? null : mapErrorRows(result.rows)[0];
@@ -997,11 +1101,13 @@ export function createPostgresProfilesRepository(options) {
       const result = await pool.query(
         `
           INSERT INTO error_t (
-            profile_id,
+            external_ref_id,
+            external_ref_type,
+            external_ref_name,
             trace_id,
-            instance_id,
+            execution_id,
             error_message,
-            error_description,
+            error_details,
             error_stack,
             error_http_code,
             node_name,
@@ -1010,14 +1116,16 @@ export function createPostgresProfilesRepository(options) {
             workflow_id,
             json
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+          VALUES ($1::text, 'profile', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
           RETURNING
             id,
-            profile_id,
+            external_ref_id,
+            external_ref_type,
+            external_ref_name,
             trace_id,
-            instance_id,
+            execution_id,
             error_message,
-            error_description,
+            error_details,
             error_stack,
             error_http_code,
             node_name,
@@ -1030,6 +1138,7 @@ export function createPostgresProfilesRepository(options) {
         `,
         [
           errorInput.profileId,
+          errorInput.externalRefName ?? null,
           errorInput.traceId,
           errorInput.executionId,
           errorInput.errorMessage,
@@ -1047,7 +1156,7 @@ export function createPostgresProfilesRepository(options) {
       return mapErrorRows(result.rows)[0];
     },
     async clearErrors(profileId) {
-      await pool.query("DELETE FROM error_t WHERE profile_id = $1", [
+      await pool.query("DELETE FROM error_t WHERE external_ref_type = 'profile' AND external_ref_id = $1::text", [
         profileId,
       ]);
     },
@@ -1284,6 +1393,30 @@ export function createPostgresProfilesRepository(options) {
       return result.rowCount > 0;
     },
     async createChat(chatMessageInput, _traceId) {
+      let resolvedSourceId =
+        Number.isInteger(chatMessageInput.sourceId) && chatMessageInput.sourceId > 0
+          ? chatMessageInput.sourceId
+          : null;
+
+      if (resolvedSourceId === null && Number.isInteger(chatMessageInput.profileId)) {
+        const sourceResult = await pool.query(
+          `
+            SELECT source_id
+            FROM profiles_t
+            WHERE id = $1
+            LIMIT 1
+          `,
+          [chatMessageInput.profileId],
+        );
+
+        if (sourceResult.rowCount > 0) {
+          const sourceId = sourceResult.rows[0]?.source_id;
+          if (Number.isInteger(sourceId) && sourceId > 0) {
+            resolvedSourceId = sourceId;
+          }
+        }
+      }
+
       sessionProfileMap.set(
         chatMessageInput.sessionId,
         chatMessageInput.profileId,
@@ -1293,20 +1426,28 @@ export function createPostgresProfilesRepository(options) {
         `
           INSERT INTO chats_t (
             session_id,
+            source_id,
             message,
             role,
             quality
           )
-          VALUES ($1, $2, $3, $4)
+          VALUES ($1, $2, $3, $4, $5)
           RETURNING
             id,
             session_id,
+            source_id,
             message,
             role,
             quality,
             created_ts
         `,
-        [chatMessageInput.sessionId, chatMessageInput.message, "user", null],
+        [
+          chatMessageInput.sessionId,
+          resolvedSourceId,
+          chatMessageInput.message,
+          "user",
+          null,
+        ],
       );
 
       if (result.rowCount === 0) {
@@ -1316,29 +1457,22 @@ export function createPostgresProfilesRepository(options) {
       const row = result.rows[0];
       return toLegacyChat(row, null, chatMessageInput.profileId);
     },
-    async getChatsByProfileId(profileId) {
-      const sessionIds = [...sessionProfileMap.entries()]
-        .filter(([, mappedProfileId]) => mappedProfileId === profileId)
-        .map(([sessionId]) => sessionId);
-
-      if (sessionIds.length === 0) {
-        return [];
-      }
-
+    async getChatsBySourceId(sourceId) {
       const result = await pool.query(
         `
           SELECT
             id,
             session_id,
+            source_id,
             message,
             role,
             quality,
             created_ts
           FROM chats_t
-          WHERE role = 'user' AND session_id = ANY($1::text[])
+          WHERE role = 'user' AND source_id = $1
           ORDER BY created_ts DESC
         `,
-        [sessionIds],
+        [sourceId],
       );
 
       const legacyChats = [];
@@ -1355,35 +1489,28 @@ export function createPostgresProfilesRepository(options) {
         );
 
         legacyChats.push(
-          toLegacyChat(row, assistantResult.rows[0] ?? null, profileId),
+          toLegacyChat(row, assistantResult.rows[0] ?? null, null),
         );
       }
 
       return legacyChats;
     },
-    async listChatHistoryByProfileId(profileId, options = {}) {
-      const sessionIds = [...sessionProfileMap.entries()]
-        .filter(([, mappedProfileId]) => mappedProfileId === profileId)
-        .map(([sessionId]) => sessionId);
-
-      if (sessionIds.length === 0) {
-        return [];
-      }
-
+    async listChatHistoryBySourceId(sourceId, options = {}) {
       const queryParts = [
         `
           SELECT
             id,
             session_id,
+            source_id,
             message,
             role,
             quality,
             created_ts
           FROM chats_t
-          WHERE session_id = ANY($1::text[])
+          WHERE source_id = $1
         `,
       ];
-      const queryParams = [sessionIds];
+      const queryParams = [sourceId];
       let paramIndex = 2;
 
       const limitValue =
@@ -1433,7 +1560,7 @@ export function createPostgresProfilesRepository(options) {
 
       return result.rows.map((row) => ({
         id: row.id,
-        profileId,
+        profileId: null,
         sessionId: row.session_id,
         message: row.message,
         role: row.role,
@@ -1447,6 +1574,7 @@ export function createPostgresProfilesRepository(options) {
           SELECT
             id,
             session_id,
+            source_id,
             message,
             role,
             quality,
@@ -1465,7 +1593,7 @@ export function createPostgresProfilesRepository(options) {
       const row = result.rows[0];
       const assistantResult = await pool.query(
         `
-          SELECT id, session_id, message, role, quality, created_ts
+          SELECT id, session_id, source_id, message, role, quality, created_ts
           FROM chats_t
           WHERE session_id = $1 AND role = 'assistant' AND created_ts >= $2
           ORDER BY created_ts DESC
@@ -1477,13 +1605,13 @@ export function createPostgresProfilesRepository(options) {
       return toLegacyChat(
         row,
         assistantResult.rows[0] ?? null,
-        sessionProfileMap.get(row.session_id) ?? null,
+        null,
       );
     },
     async updateChatResponse(chatId, agentResponse, _n8nExecutionId, status) {
       const userChatResult = await pool.query(
         `
-          SELECT id, session_id, message, role, quality, created_ts
+          SELECT id, session_id, source_id, message, role, quality, created_ts
           FROM chats_t
           WHERE id = $1 AND role = 'user'
           LIMIT 1
@@ -1498,12 +1626,13 @@ export function createPostgresProfilesRepository(options) {
       const userChat = userChatResult.rows[0];
       const assistantInsertResult = await pool.query(
         `
-          INSERT INTO chats_t (session_id, message, role, quality)
-          VALUES ($1, $2, $3, $4)
-          RETURNING id, session_id, message, role, quality, created_ts
+          INSERT INTO chats_t (session_id, source_id, message, role, quality)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, session_id, source_id, message, role, quality, created_ts
         `,
         [
           userChat.session_id,
+          userChat.source_id ?? null,
           agentResponse,
           "assistant",
           status === "failed" ? 0 : status === "completed" ? 1 : null,
@@ -1515,7 +1644,7 @@ export function createPostgresProfilesRepository(options) {
       return toLegacyChat(
         userChat,
         assistantRow,
-        sessionProfileMap.get(userChat.session_id) ?? null,
+        null,
       );
     },
     async close() {

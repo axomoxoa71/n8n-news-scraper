@@ -28,6 +28,7 @@
 \i server/sql/ddl/rss_feeds_t.sql
 \i server/sql/ddl/error_t.sql
 \i server/sql/ddl/news_t.sql
+\i server/sql/ddl/news_tags_t.sql
 \i server/sql/ddl/notification_profiles_t.sql
 \i server/sql/ddl/notification_channels_t.sql
 

@@ -17,16 +17,17 @@ Define requirements for the Chat sub-screen of Chatbot, focused on asking questi
 ## Functional Requirements
 
 1. The chat page must require an active profile context before sending questions.
-2. Submitting a chat question must call `POST /api/chats` with `profileId`, `sessionId`, and `message`.
-3. The backend must persist the chat request and update the response status as `completed` or `failed`.
-4. The backend must call the configured chatbot webhook and forward trace context through `traceparent`.
-5. If the chatbot webhook times out, the API must return an error and persist a failed chat response.
-6. If the chatbot webhook returns no synchronous answer, the API must return an error and persist a failed chat response.
-7. The UI must support a "new session" behavior that resets turn history and generates a new `sessionId`.
-8. The UI must load quick reply prompts from `GET /api/chats/quick-reply` and allow inserting and sending them.
-9. The UI must support voice input language selection for German and English, with default based on browser locale.
-10. The chatbot header must provide a dedicated history icon to the left of the new-chat (`+`) action.
-11. Clicking the history icon must open the history sub-screen for the selected profile.
+2. Submitting a chat question from the Chat UI must call `POST /api/chats/dispatch` with `profileId`, `sessionId`, and `message`.
+3. The `POST /api/chats/dispatch` endpoint must return a synchronous chatbot answer payload for immediate UI rendering and must not persist chat rows.
+4. The backend must support `POST /api/chats` for persistent chatbot workflow integration and update stored response status as `completed` or `failed`.
+5. Chatbot endpoints must call the configured webhook and forward trace context through `traceparent`.
+6. If the chatbot webhook times out, the API must return an error; the persistent flow (`POST /api/chats`) must persist a failed chat response.
+7. If the chatbot webhook returns no synchronous answer, the API must return an error; the persistent flow (`POST /api/chats`) must persist a failed chat response.
+8. The UI must support a "new session" behavior that resets turn history and generates a new `sessionId`.
+9. The UI must load quick reply prompts from `GET /api/chats/quick-reply` and allow inserting and sending them.
+10. The UI must support voice input language selection for German and English, with default based on browser locale.
+11. The chatbot header must provide a dedicated history icon to the left of the new-chat (`+`) action.
+12. Clicking the history icon must open the history sub-screen for the selected profile.
 
 ## Non-Functional Requirements
 
@@ -44,9 +45,9 @@ Define requirements for the Chat sub-screen of Chatbot, focused on asking questi
 
 ## Acceptance Criteria
 
-1. Sending a valid chat message creates a chat record and returns a completed response when webhook succeeds.
-2. If webhook timeout is reached, API returns timeout error and stored chat status is `failed`.
-3. If webhook returns no synchronous answer, API returns a handled error and stored chat status is `failed`.
+1. Sending a valid chat message from the Chat UI calls `POST /api/chats/dispatch` and returns a completed synchronous response when webhook succeeds.
+2. If webhook timeout is reached, API returns timeout error; when using `POST /api/chats`, stored chat status is `failed`.
+3. If webhook returns no synchronous answer, API returns a handled error; when using `POST /api/chats`, stored chat status is `failed`.
 4. Opening a new chat session clears visible chat turns and uses a new `sessionId`.
 5. Quick replies load from API and can be used to send a message.
 6. Voice input language defaults from browser locale and supports manual toggle between German and English.

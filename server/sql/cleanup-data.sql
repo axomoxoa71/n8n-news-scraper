@@ -7,6 +7,7 @@ BEGIN;
 TRUNCATE TABLE
   notification_channels_t,
   error_t,
+  news_tags_t,
   news_t,
   rss_feeds_t,
   profile_roles_t,

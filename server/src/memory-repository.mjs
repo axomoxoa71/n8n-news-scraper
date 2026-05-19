@@ -127,16 +127,6 @@ export function createMemoryProfilesRepository() {
               url: "https://ai.meta.com/blog/",
               description: "Meta AI Blog",
             },
-            {
-              id: 2,
-              url: "https://openai.com/news/",
-              description: "OpenAI News",
-            },
-            {
-              id: 3,
-              url: "https://www.anthropic.com/news",
-              description: "Anthropic News",
-            },
           ],
           rssFeeds: [
             {
@@ -152,8 +142,8 @@ export function createMemoryProfilesRepository() {
             {
               id: 3,
               feedUrl:
-                "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.xml",
-              description: "Anthropic News RSS",
+                "https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml",
+              description: "AI News OPML",
             },
           ],
         },
@@ -421,12 +411,16 @@ export function createMemoryProfilesRepository() {
               Date.now() - (index + 1) * 60_000,
             ).toISOString(),
             favorite: item.favorite,
+            ragStatus: 'NEW',
           });
         });
       }
 
       const errorTestProfile = seededProfiles.find(
         (profile) => profile.name === "Error Test Profile",
+      );
+      const errorTestSource = seededSources.find(
+        (source) => source.id === errorTestProfile?.sourceId,
       );
 
       if (errorTestProfile) {
@@ -454,6 +448,9 @@ export function createMemoryProfilesRepository() {
           errorItems.unshift({
             id: nextErrorId++,
             profileId: errorTestProfile.id,
+            externalRefId: String(errorTestProfile.sourceId),
+            externalRefType: "source",
+            externalRefName: errorTestSource?.name ?? "Error Test Source",
             traceId: item.traceId,
             executionId: item.executionId,
             errorMessage: item.errorMessage,
@@ -606,16 +603,61 @@ export function createMemoryProfilesRepository() {
 
       return structuredClone(newsItems[itemIndex]);
     },
-    async listErrors(profileId, searchTerm = "") {
+    async listErrors(
+      profileId = null,
+      searchTerm = "",
+      timeFrame = "lastHour",
+      externalRefId = null,
+    ) {
       const normalizedSearchTerms = String(searchTerm ?? "")
         .trim()
         .split(/\s+/)
         .filter(Boolean)
         .map((term) => term.toLocaleLowerCase());
 
+      // Calculate timestamp for time frame filtering
+      const now = new Date();
+      let cutoffDate = new Date();
+
+      switch (timeFrame) {
+        case "lastHour":
+          cutoffDate.setHours(cutoffDate.getHours() - 1);
+          break;
+        case "lastDay":
+          cutoffDate.setDate(cutoffDate.getDate() - 1);
+          break;
+        case "lastWeek":
+          cutoffDate.setDate(cutoffDate.getDate() - 7);
+          break;
+        case "lastMonth":
+          cutoffDate.setMonth(cutoffDate.getMonth() - 1);
+          break;
+        case "all":
+        default:
+          // No time frame filtering
+          break;
+      }
+
       const matching = errorItems
         .filter((item) => {
-          if (item.profileId !== profileId) {
+          if (
+            Number.isInteger(profileId) &&
+            profileId > 0 &&
+            item.profileId !== profileId
+          ) {
+            return false;
+          }
+
+          // Time frame filter
+          if (timeFrame !== "all") {
+            const itemTime = new Date(item.createdTs).getTime();
+            if (itemTime < cutoffDate.getTime()) {
+              return false;
+            }
+          }
+
+          // External reference filter
+          if (externalRefId && item.externalRefId !== externalRefId) {
             return false;
           }
 
@@ -625,6 +667,9 @@ export function createMemoryProfilesRepository() {
 
           const searchableText = [
             String(item.id),
+            item.externalRefId ?? "",
+            item.externalRefType ?? "",
+            item.externalRefName ?? "",
             item.traceId,
             item.executionId,
             item.errorMessage,
@@ -654,9 +699,43 @@ export function createMemoryProfilesRepository() {
 
       return structuredClone(matching);
     },
-    async getError(profileId, errorId) {
+
+    async listDistinctExternalReferences() {
+      const references = new Map();
+
+      for (const item of errorItems) {
+        if (item.externalRefType && item.externalRefId) {
+          const key = `${item.externalRefType}:${item.externalRefId}`;
+          if (!references.has(key)) {
+            references.set(key, new Set());
+          }
+          const types = references.get(key);
+          if (types) {
+            types.add(item.externalRefType);
+          }
+        }
+      }
+
+      const result = [];
+      for (const [key] of references) {
+        const [type, id] = key.split(":");
+        result.push({ type, id });
+      }
+
+      return result.sort((a, b) => {
+        if (a.type !== b.type) {
+          return a.type.localeCompare(b.type);
+        }
+        return a.id.localeCompare(b.id);
+      });
+    },
+    async getError(errorId, profileId = null) {
       const entry = errorItems.find(
-        (item) => item.profileId === profileId && item.id === errorId,
+        (item) =>
+          item.id === errorId &&
+          (!Number.isInteger(profileId) ||
+            profileId <= 0 ||
+            item.profileId === profileId),
       );
 
       return entry ? structuredClone(entry) : null;
@@ -665,6 +744,7 @@ export function createMemoryProfilesRepository() {
       const now = new Date().toISOString();
       const createdError = {
         ...structuredClone(errorInput),
+        externalRefName: errorInput.externalRefName ?? null,
         id: nextErrorId++,
         createdTs: now,
         updatedTs: now,
@@ -697,6 +777,7 @@ export function createMemoryProfilesRepository() {
         ...structuredClone(newsInput),
         id: nextNewsId++,
         newsId,
+        ragStatus: typeof newsInput.ragStatus === 'string' ? newsInput.ragStatus : 'NEW',
       };
 
       newsItems.unshift(created);
@@ -745,6 +826,15 @@ export function createMemoryProfilesRepository() {
     },
     async createChat(chatMessageInput, _traceId) {
       const now = new Date().toISOString();
+      const profile = profiles.find(
+        (entry) => entry.id === chatMessageInput.profileId,
+      );
+      const resolvedSourceId =
+        Number.isInteger(chatMessageInput.sourceId) && chatMessageInput.sourceId > 0
+          ? chatMessageInput.sourceId
+          : Number.isInteger(profile?.sourceId) && profile.sourceId > 0
+            ? profile.sourceId
+            : null;
       sessionProfileMap.set(
         chatMessageInput.sessionId,
         chatMessageInput.profileId,
@@ -753,6 +843,7 @@ export function createMemoryProfilesRepository() {
       const chat = {
         id: nextChatId++,
         sessionId: chatMessageInput.sessionId,
+        sourceId: resolvedSourceId,
         message: chatMessageInput.message,
         role: "user",
         quality: null,
@@ -765,12 +856,12 @@ export function createMemoryProfilesRepository() {
         toLegacyChat(chat, null, chatMessageInput.profileId),
       );
     },
-    async getChatsByProfileId(profileId) {
+    async getChatsBySourceId(sourceId) {
       const chatsForProfile = chats
         .filter(
           (chat) =>
             chat.role === "user" &&
-            sessionProfileMap.get(chat.sessionId) === profileId,
+            chat.sourceId === sourceId,
         )
         .map((userChat) => {
           const assistantChat = chats.find(
@@ -781,12 +872,12 @@ export function createMemoryProfilesRepository() {
                 new Date(userChat.createdTs).getTime(),
           );
 
-          return toLegacyChat(userChat, assistantChat ?? null, profileId);
+          return toLegacyChat(userChat, assistantChat ?? null, null);
         });
 
       return structuredClone(chatsForProfile);
     },
-    async listChatHistoryByProfileId(profileId, options = {}) {
+    async listChatHistoryBySourceId(sourceId, options = {}) {
       const normalizedSessionIdQuery =
         typeof options.sessionIdQuery === "string"
           ? options.sessionIdQuery.trim().toLocaleLowerCase()
@@ -809,7 +900,7 @@ export function createMemoryProfilesRepository() {
           : 1000;
 
       const filtered = chats
-        .filter((chat) => sessionProfileMap.get(chat.sessionId) === profileId)
+        .filter((chat) => chat.sourceId === sourceId)
         .filter((chat) => {
           if (!normalizedSessionIdQuery) {
             return true;
@@ -849,7 +940,7 @@ export function createMemoryProfilesRepository() {
         .slice(0, effectiveLimit)
         .map((chat) => ({
           id: chat.id,
-          profileId,
+          profileId: null,
           sessionId: chat.sessionId,
           message: chat.message,
           role: chat.role,

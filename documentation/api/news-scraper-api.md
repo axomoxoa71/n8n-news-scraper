@@ -14,13 +14,20 @@
 
 The API exposes profile CRUD operations and profile-scoped news operations for the News page. It is served by the Node backend under `/api` and persists to Postgres when database environment variables are configured.
 
+Chatbot contract is split into two endpoint modes:
+
+- `POST /api/chats/dispatch`: synchronous response endpoint used by Chat UI for immediate answer rendering (non-persistent flow).
+- `POST /api/chats`: persistent integration endpoint that writes workflow messages to `chats_t`.
+
 For chatbot persistence, `chats_t` is used as an n8n integration storage table. Browser UI does not access `chats_t` directly; interaction is only through backend API endpoints.
 
 Profiles can optionally include notification channel selection metadata. Multi-select values are accepted through `notificationChannelIds` and persisted in the profile snapshot. For compatibility, `notificationProfileId` is also accepted and returned.
 
 When notification channel IDs are provided, every selected ID must reference an existing notification profile (`/api/notification-profiles`); unknown IDs are rejected with `400`.
 
-Profile-scoped scrape errors are persisted in `error_t` and exposed through `/api/errors` endpoints. Before each new scrape trigger (`POST /api/news/profile/scrape`), existing errors for the selected profile are cleared so only errors from the latest scrape run remain visible.
+Scrape errors are persisted in `error_t` and exposed through `/api/errors` endpoints. Error listing and details are global by default; `profileId` remains an optional filter.
+
+Before each new scrape trigger (`POST /api/news/profile/scrape`), existing errors for the selected profile are cleared so only errors from the latest scrape run remain visible for that profile.
 
 Error payloads include `traceId` for cross-layer troubleshooting and log correlation. `POST /api/errors` accepts `traceId` optionally; if omitted, the backend generates a fallback trace ID.
 
@@ -31,16 +38,29 @@ Error payloads include `traceId` for cross-layer troubleshooting and log correla
 - `POST /api/profiles`
 - `PUT /api/profiles/{id}`
 - `DELETE /api/profiles/{id}`
-- `GET /api/news?profileId={id}`
+- `GET /api/sources`
+- `POST /api/sources`
+- `PUT /api/sources/{id}`
+- `DELETE /api/sources/{id}`
+- `GET /api/news?sourceId={id}`
+- `POST /api/news`
 - `PUT /api/news/{id}/favorite`
-- `GET /api/errors?profileId={id}&search={term}`
-- `GET /api/errors/{id}?profileId={id}`
+- `POST /api/news/source/scrape`
+- `GET /api/errors?search={term}&profileId={id}`
+- `GET /api/errors/external-references`
+- `GET /api/errors/{id}?profileId={id}` (optional `profileId` filter)
 - `POST /api/errors`
 - `GET /api/notification-profiles`
 - `POST /api/notification-profiles`
 - `PUT /api/notification-profiles/{id}`
 - `DELETE /api/notification-profiles/{id}`
 - `POST /api/news/profile/scrape`
+- `GET /api/profiles/{id}/chats`
+- `GET /api/profiles/{id}/chat-history`
+- `GET /api/chats/quick-reply`
+- `GET /api/chats/{id}`
+- `POST /api/chats/dispatch`
+- `POST /api/chats`
 
 ## OpenAPI Specification
 

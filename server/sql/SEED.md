@@ -145,7 +145,7 @@ Default SQL seed baseline (`server/sql/seed.sql`) creates a profile-switching te
 - **profile_roles_t:** 12 total (3 per profile)
 - **rss_feeds_t:** 12 total (3 per profile)
 - **news_t:** 12 total (3 per profile)
-- **error_t:** 3 total (all 3 seeded errors belong to `Error Test Profile`)
+- **error_t:** 3 total (all 3 seeded errors reference the `Error Test Profile` source via `external_ref_type = source`)
 - **notification_profiles_t:** 3
 - **notification_channels_t:** 9 total (3 per notification profile)
 

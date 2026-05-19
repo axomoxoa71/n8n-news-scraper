@@ -76,10 +76,12 @@ export type SavedNewsItem = {
   link: string;
   timestamp: string;
   favorite: boolean;
+  ragStatus: 'NEW' | 'PROCESSING' | 'DONE';
 };
 
 export type ErrorInput = {
   profileId: number;
+  externalRefName?: string | null;
   traceId: string;
   executionId: string;
   errorMessage: string;
@@ -95,9 +97,14 @@ export type ErrorInput = {
 
 export type SavedErrorItem = ErrorInput & {
   id: number;
+  externalRefId: string | null;
+  externalRefType: string | null;
+  externalRefName: string | null;
   createdTs: string;
   updatedTs: string;
 };
+
+export type TimeFrameFilter = "lastHour" | "lastDay" | "lastWeek" | "lastMonth" | "all";
 
 const defaultRssFeed: RssFeed = {
   id: 1,

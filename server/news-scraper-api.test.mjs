@@ -11,10 +11,12 @@ import {
 
 function createMemoryRepository() {
   let nextId = 1;
+  let nextSourceId = 1;
   let nextNewsId = 1;
   let nextErrorId = 1;
   let nextChatId = 1;
   const profiles = [];
+  const sources = [];
   const newsItems = [];
   const errorItems = [];
   const chats = [];
@@ -43,6 +45,18 @@ function createMemoryRepository() {
   return {
     async listProfiles() {
       return structuredClone(profiles);
+    },
+    async listSources() {
+      return structuredClone(sources);
+    },
+    async createSource(sourceInput) {
+      const createdSource = {
+        ...structuredClone(sourceInput),
+        id: nextSourceId++,
+      };
+
+      sources.unshift(createdSource);
+      return structuredClone(createdSource);
     },
     async createProfile(profileInput) {
       const createdProfile = {
@@ -105,7 +119,7 @@ function createMemoryRepository() {
 
       return structuredClone(newsItems[index]);
     },
-    async listErrors(profileId, searchTerm = "") {
+    async listErrors(profileId = null, searchTerm = "") {
       const normalizedSearchTerms = String(searchTerm ?? "")
         .trim()
         .split(/\s+/)
@@ -114,7 +128,11 @@ function createMemoryRepository() {
 
       const matching = errorItems
         .filter((item) => {
-          if (item.profileId !== profileId) {
+          if (
+            Number.isInteger(profileId) &&
+            profileId > 0 &&
+            item.profileId !== profileId
+          ) {
             return false;
           }
 
@@ -152,9 +170,13 @@ function createMemoryRepository() {
 
       return structuredClone(matching);
     },
-    async getError(profileId, errorId) {
+    async getError(errorId, profileId = null) {
       const entry = errorItems.find(
-        (item) => item.id === errorId && item.profileId === profileId,
+        (item) =>
+          item.id === errorId &&
+          (!Number.isInteger(profileId) ||
+            profileId <= 0 ||
+            item.profileId === profileId),
       );
 
       return entry ? structuredClone(entry) : null;
@@ -189,6 +211,7 @@ function createMemoryRepository() {
         ...structuredClone(newsInput),
         id: nextNewsId++,
         newsId,
+        ragStatus: typeof newsInput.ragStatus === 'string' ? newsInput.ragStatus : 'NEW',
       };
 
       newsItems.unshift(created);
@@ -199,9 +222,19 @@ function createMemoryRepository() {
     },
     async createChat(chatMessageInput, traceId) {
       const now = new Date().toISOString();
+      const profile = profiles.find(
+        (entry) => entry.id === chatMessageInput.profileId,
+      );
+      const resolvedSourceId =
+        Number.isInteger(chatMessageInput.sourceId) && chatMessageInput.sourceId > 0
+          ? chatMessageInput.sourceId
+          : Number.isInteger(profile?.sourceId) && profile.sourceId > 0
+            ? profile.sourceId
+            : null;
       const createdChat = {
         id: nextChatId++,
         profileId: chatMessageInput.profileId,
+        sourceId: resolvedSourceId,
         sessionId: chatMessageInput.sessionId,
         message: chatMessageInput.message,
         agentResponse: null,
@@ -215,12 +248,12 @@ function createMemoryRepository() {
       chats.unshift(createdChat);
       return structuredClone(createdChat);
     },
-    async getChatsByProfileId(profileId) {
+    async getChatsBySourceId(sourceId) {
       return structuredClone(
-        chats.filter((chat) => chat.profileId === profileId),
+        chats.filter((chat) => chat.sourceId === sourceId),
       );
     },
-    async listChatHistoryByProfileId(profileId, options = {}) {
+    async listChatHistoryBySourceId(sourceId, options = {}) {
       const sessionIdQuery =
         typeof options.sessionIdQuery === "string"
           ? options.sessionIdQuery.trim().toLocaleLowerCase()
@@ -239,12 +272,12 @@ function createMemoryRepository() {
           : 1000;
 
       const historyRows = chats
-        .filter((chat) => chat.profileId === profileId)
+        .filter((chat) => chat.sourceId === sourceId)
         .flatMap((chat) => {
           const rows = [
             {
               id: chat.id * 2 - 1,
-              profileId: chat.profileId,
+              profileId: null,
               sessionId: chat.sessionId,
               message: chat.message,
               role: "user",
@@ -256,7 +289,7 @@ function createMemoryRepository() {
           if (chat.agentResponse !== null) {
             rows.push({
               id: chat.id * 2,
-              profileId: chat.profileId,
+              profileId: null,
               sessionId: chat.sessionId,
               message: chat.agentResponse,
               role: "assistant",
@@ -1056,6 +1089,46 @@ test("news API requires a unique newsId for created items", async () => {
   }
 });
 
+test("news API defaults ragStatus to NEW", async () => {
+  const testServer = await startTestServer(createMemoryProfilesRepository());
+
+  try {
+    const createdNewsResponse = await fetch(`${testServer.baseUrl}/api/news`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        newsId: "33333333-3333-3333-3333-333333333399",
+        sourceId: 1,
+        title: "RAG status default state",
+        summary: "Verify ragStatus defaults to NEW.",
+        origin: "Test",
+        link: "https://example.com/news/rag-default",
+        timestamp: new Date().toISOString(),
+        favorite: false,
+      }),
+    });
+
+    assert.equal(createdNewsResponse.status, 201);
+    const createdNews = await createdNewsResponse.json();
+    assert.equal(createdNews.ragStatus, 'NEW');
+
+    const listNewsResponse = await fetch(`${testServer.baseUrl}/api/news?sourceId=1`);
+    assert.equal(listNewsResponse.status, 200);
+    const listedNews = await listNewsResponse.json();
+
+    assert.equal(Array.isArray(listedNews), true);
+    const matchingNews = listedNews.find(
+      (item) => item.id === createdNews.id,
+    );
+    assert.equal(Boolean(matchingNews), true);
+    assert.equal(matchingNews.ragStatus, 'NEW');
+  } finally {
+    await testServer.close();
+  }
+});
+
 test("errors API supports create, list, search, and fetch-by-id", async () => {
   const repository = createMemoryRepository();
   const testServer = await startTestServer({ repository });
@@ -1114,9 +1187,7 @@ test("errors API supports create, list, search, and fetch-by-id", async () => {
     assert.equal(createdError.traceId, "trace-errors-1");
     assert.equal(createdError.errorHttpCode, 502);
 
-    const listErrorsResponse = await fetch(
-      `${testServer.baseUrl}/api/errors?profileId=${createdProfile.id}`,
-    );
+    const listErrorsResponse = await fetch(`${testServer.baseUrl}/api/errors`);
     assert.equal(listErrorsResponse.status, 200);
     const listedErrors = await listErrorsResponse.json();
     assert.equal(listedErrors.length, 1);
@@ -1171,6 +1242,13 @@ test("errors API supports create, list, search, and fetch-by-id", async () => {
     const fetchedError = await getErrorResponse.json();
     assert.equal(fetchedError.traceId, "trace-errors-1");
     assert.equal(fetchedError.workflowId, "wf-errors-1");
+
+    const getErrorGlobalResponse = await fetch(
+      `${testServer.baseUrl}/api/errors/${createdError.id}`,
+    );
+    assert.equal(getErrorGlobalResponse.status, 200);
+    const globallyFetchedError = await getErrorGlobalResponse.json();
+    assert.equal(globallyFetchedError.id, createdError.id);
   } finally {
     await testServer.close();
   }
@@ -1764,9 +1842,16 @@ test("chatbot API returns hard-coded quick replies", async () => {
 
 test("chatbot API returns 503 when chatbot webhook URL is not configured", async () => {
   const repository = createMemoryRepository();
+  const createdSource = await repository.createSource({
+    name: "Chat Source",
+    description: "",
+    urls: [],
+    rssFeeds: [],
+  });
   const createdProfile = await repository.createProfile({
     name: "Chat Profile",
     description: "",
+    sourceId: createdSource.id,
     useCustomSources: false,
     tags: [],
     roles: [],
@@ -1835,9 +1920,16 @@ test("chatbot API triggers webhook and stores chat history", async () => {
   const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
 
   const repository = createMemoryRepository();
+  const createdSource = await repository.createSource({
+    name: "Chat Source",
+    description: "",
+    urls: [],
+    rssFeeds: [],
+  });
   const createdProfile = await repository.createProfile({
     name: "Chat Profile",
     description: "",
+    sourceId: createdSource.id,
     useCustomSources: false,
     tags: [],
     roles: [],
@@ -1898,9 +1990,11 @@ test("chatbot API triggers webhook and stores chat history", async () => {
     const webhookRequestBody = JSON.parse(workflowCalls[0].body);
     assert.deepEqual(webhookRequestBody, {
       sessionId: TEST_SESSION_ID,
+      sourceId: createdSource.id,
+      sourceName: "Chat Source",
       message: "Summarize the latest AI news.",
     });
-    assert.deepEqual(Object.keys(webhookRequestBody), ["sessionId", "message"]);
+    assert.deepEqual(Object.keys(webhookRequestBody), ["sessionId", "sourceId", "sourceName", "message"]);
 
     const historyResponse = await fetch(
       `${baseUrl}/api/profiles/${createdProfile.id}/chats`,
@@ -2264,9 +2358,16 @@ test("chatbot dispatch API supports nested synchronous answer fields", async () 
 
 test("chat history endpoint returns timestamp-sorted rows and supports filters", async () => {
   const repository = createMemoryRepository();
+  const createdSource = await repository.createSource({
+    name: "History Source",
+    description: "",
+    urls: [],
+    rssFeeds: [],
+  });
   const createdProfile = await repository.createProfile({
     name: "History Profile",
     description: "",
+    sourceId: createdSource.id,
     useCustomSources: false,
     tags: [],
     roles: [],
@@ -2339,6 +2440,110 @@ test("chat history endpoint returns timestamp-sorted rows and supports filters",
   }
 });
 
+test("chat history endpoint filters by selected profile source", async () => {
+  const repository = createMemoryRepository();
+  const sharedSource = await repository.createSource({
+    name: "Shared Source",
+    description: "",
+    urls: [],
+    rssFeeds: [],
+  });
+  const isolatedSource = await repository.createSource({
+    name: "Isolated Source",
+    description: "",
+    urls: [],
+    rssFeeds: [],
+  });
+
+  const profileA = await repository.createProfile({
+    name: "Profile A",
+    description: "",
+    sourceId: sharedSource.id,
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+  const profileB = await repository.createProfile({
+    name: "Profile B",
+    description: "",
+    sourceId: sharedSource.id,
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+  const profileC = await repository.createProfile({
+    name: "Profile C",
+    description: "",
+    sourceId: isolatedSource.id,
+    useCustomSources: false,
+    tags: [],
+    roles: [],
+    urls: [],
+    rssFeeds: [],
+    notificationChannelIds: [],
+  });
+
+  const sharedChatA = await repository.createChat({
+    profileId: profileA.id,
+    sessionId: "shared-session-a",
+    message: "Question from profile A",
+  });
+  await repository.updateChatResponse(
+    sharedChatA.id,
+    "Answer from profile A",
+    null,
+    "completed",
+  );
+
+  const sharedChatB = await repository.createChat({
+    profileId: profileB.id,
+    sessionId: "shared-session-b",
+    message: "Question from profile B",
+  });
+  await repository.updateChatResponse(
+    sharedChatB.id,
+    "Answer from profile B",
+    null,
+    "completed",
+  );
+
+  const isolatedChat = await repository.createChat({
+    profileId: profileC.id,
+    sessionId: "isolated-session-c",
+    message: "Question from profile C",
+  });
+  await repository.updateChatResponse(
+    isolatedChat.id,
+    "Answer from profile C",
+    null,
+    "completed",
+  );
+
+  const testServer = await startTestServer(createApiConfig({ repository }));
+
+  try {
+    const response = await fetch(
+      `${testServer.baseUrl}/api/profiles/${profileA.id}/chat-history?timePeriod=all`,
+    );
+    assert.equal(response.status, 200);
+
+    const rows = await response.json();
+    const sessionIds = new Set(rows.map((row) => row.sessionId));
+
+    assert.equal(sessionIds.has("shared-session-a"), true);
+    assert.equal(sessionIds.has("shared-session-b"), true);
+    assert.equal(sessionIds.has("isolated-session-c"), false);
+  } finally {
+    await testServer.close();
+  }
+});
+
 test("chatbot API appends profile context when message mentions profile", async () => {
   const workflowCalls = [];
   const upstreamServer = createServer((request, response) => {
@@ -2370,10 +2575,17 @@ test("chatbot API appends profile context when message mentions profile", async 
   const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
 
   const repository = createMemoryRepository();
+  const createdSource = await repository.createSource({
+    name: "AI Demo",
+    description: "",
+    urls: [],
+    rssFeeds: [],
+  });
   const createdProfile = await repository.createProfile({
     name: "Profile Context Chat Profile",
     description: "",
     useCustomSources: false,
+    sourceId: createdSource.id,
     tags: [],
     roles: [],
     urls: [],
@@ -2413,13 +2625,15 @@ test("chatbot API appends profile context when message mentions profile", async 
     assert.equal(workflowCalls.length, 1);
 
     const webhookRequestBody = JSON.parse(workflowCalls[0].body);
+    assert.equal(webhookRequestBody.sourceId, createdSource.id);
+    assert.equal(webhookRequestBody.sourceName, "AI Demo");
     assert.equal(
       webhookRequestBody.message,
       [
         "Please summarize profile updates.",
         "",
-        "Profile Id: 1",
-        "Profile Name: AI Demo",
+        "Source Id: 1",
+        "Source Name: AI Demo",
       ].join("\n"),
     );
   } finally {
@@ -2464,9 +2678,16 @@ test("chatbot API times out webhook call after configured timeout", async () => 
   const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
 
   const repository = createMemoryRepository();
+  const createdSource = await repository.createSource({
+    name: "Timeout Source",
+    description: "",
+    urls: [],
+    rssFeeds: [],
+  });
   const createdProfile = await repository.createProfile({
     name: "Timeout Chat Profile",
     description: "",
+    sourceId: createdSource.id,
     useCustomSources: false,
     tags: [],
     roles: [],
@@ -2778,9 +2999,16 @@ test("chatbot API fails when webhook returns no synchronous answer", async () =>
   const workflowUrl = `http://127.0.0.1:${upstreamAddress.port}/webhook/chatbot`;
 
   const repository = createMemoryRepository();
+  const createdSource = await repository.createSource({
+    name: "No Answer Source",
+    description: "",
+    urls: [],
+    rssFeeds: [],
+  });
   const createdProfile = await repository.createProfile({
     name: "No Answer Chat Profile",
     description: "",
+    sourceId: createdSource.id,
     useCustomSources: false,
     tags: [],
     roles: [],

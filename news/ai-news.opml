@@ -9,13 +9,11 @@
     <!-- Core AI Labs -->
     <outline text="OpenAI Blog" type="rss" xmlUrl="https://openai.com/blog/rss.xml"/>
     <outline text="DeepMind Blog" type="rss" xmlUrl="https://deepmind.google/blog/rss.xml"/>
-    <outline text="Google AI Blog" type="rss" xmlUrl="https://ai.googleblog.com/feeds/posts/default"/>
     <outline text="Meta AI Blog" type="rss" xmlUrl="https://ai.facebook.com/blog/rss/"/>
 
     <!-- AI Platforms -->
     <outline text="Hugging Face Blog" type="rss" xmlUrl="https://huggingface.co/blog/feed.xml"/>
-    <outline text="Stability AI News" type="rss" xmlUrl="https://stability.ai/news/rss"/>
-
+    
     <!-- Research Papers -->
     <outline text="ArXiv AI (cs.AI)" type="rss" xmlUrl="https://arxiv.org/rss/cs.AI"/>
     <outline text="ArXiv NLP (cs.CL)" type="rss" xmlUrl="https://arxiv.org/rss/cs.CL"/>
@@ -24,16 +22,11 @@
     <!-- News & Analysis -->
     <outline text="MIT Tech Review AI" type="rss" xmlUrl="https://www.technologyreview.com/topic/artificial-intelligence/feed"/>
     <outline text="VentureBeat AI" type="rss" xmlUrl="https://venturebeat.com/category/ai/feed/"/>
-    <outline text="The Verge AI" type="rss" xmlUrl="https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"/>
     <outline text="TechCrunch AI" type="rss" xmlUrl="https://techcrunch.com/category/artificial-intelligence/feed/"/>
 
     <!-- Dev & Engineering -->
     <outline text="Towards Data Science" type="rss" xmlUrl="https://towardsdatascience.com/feed"/>
     <outline text="Machine Learning Mastery" type="rss" xmlUrl="https://machinelearningmastery.com/blog/feed/"/>
-
-    <!-- Community / Trends -->
-    <outline text="Reddit Machine Learning" type="rss" xmlUrl="https://www.reddit.com/r/MachineLearning/.rss"/>
-    <outline text="Reddit Artificial Intelligence" type="rss" xmlUrl="https://www.reddit.com/r/artificial/.rss"/>
 
     <!-- Companies / Cloud AI -->
     <outline text="Microsoft AI Blog" type="rss" xmlUrl="https://blogs.microsoft.com/ai/feed/"/>

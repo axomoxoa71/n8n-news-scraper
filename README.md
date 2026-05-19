@@ -19,7 +19,7 @@ The application provides an entry experience for navigating between:
 - Chatbot interaction
 - News listing (title, summary, origin, link, timestamp, favorite)
 
-The current implementation uses a Vite frontend, an Express-based API, and Playwright-based end-to-end validation. News content is retrieved through API endpoints backed by repository storage, and Chatbot remains placeholder content.
+The current implementation uses a Vite frontend, an Express-based API, and Playwright-based end-to-end validation. News content is retrieved through API endpoints backed by repository storage, and Chatbot interaction with history and quick replies is available through backend API endpoints.
 
 ## Key Features
 
@@ -113,10 +113,11 @@ graph TD
 
 - Implementation details: [documentation/implementation.md](documentation/implementation.md)
 - Logging strategy: [documentation/logging.md](documentation/logging.md)
-- Installation guide: [documentation/installatiion.md](documentation/installatiion.md)
+- Installation guide: [documentation/installation.md](documentation/installation.md)
 - News Scraper API reference: [documentation/api/news-scraper-api.md](documentation/api/news-scraper-api.md)
 - Dependencies reference: [documentation/dependencies.md](documentation/dependencies.md)
 - Environment variables: [documentation/environment-variables.md](documentation/environment-variables.md)
+- Main screen requirements: [requirements/main-screen-requirements.md](requirements/main-screen-requirements.md)
 - Profile requirements: [requirements/profiles-requirements.md](requirements/profiles-requirements.md)
 - News search requirements: [requirements/news-search-requirements.md](requirements/news-search-requirements.md)
 - Notification channel requirements: [requirements/notification-channels-requirements.md](requirements/notification-channels-requirements.md)
