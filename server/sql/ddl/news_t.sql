@@ -7,16 +7,20 @@ CREATE TABLE news_t (
   sentiment    TEXT,
   image        TEXT,
   origin       TEXT,
-  link         TEXT         NOT NULL,
+  url          TEXT         NOT NULL,
   published_ts TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   favorite     BOOLEAN      NOT NULL DEFAULT FALSE,
   rag_status   VARCHAR(20)  NOT NULL DEFAULT 'NEW',
+  rag_proc_guid TEXT,
+  rag_error TEXT,
   categorization_status VARCHAR(20)  NOT NULL DEFAULT 'NEW',
+  categorization_proc_guid TEXT,
+  categorization_error TEXT,
   created_ts   TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_ts   TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT news_t_news_id_uk UNIQUE (news_id),
-  CONSTRAINT news_t_rag_status_chk CHECK (rag_status IN ('NEW', 'PROCESSING', 'DONE')),
-  CONSTRAINT news_t_categorization_status_chk CHECK (categorization_status IN ('NEW', 'PROCESSING', 'DONE'))
+  CONSTRAINT news_t_rag_status_chk CHECK (rag_status IN ('NEW', 'PROCESSING', 'DONE', 'ERROR')),
+  CONSTRAINT news_t_categorization_status_chk CHECK (categorization_status IN ('NEW', 'PROCESSING', 'DONE', 'ERROR'))
 );
 
 CREATE INDEX news_t_source_id_published_ts_idx

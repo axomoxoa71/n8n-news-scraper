@@ -14,7 +14,6 @@ This directory contains tools to initialize predefined profiles and sample news 
 
 - `seed-profiles.json` - Reusable JSON definition of profiles to seed
 - `seed.sql` - Direct SQL initialization for profiles and related source tables (Postgres)
-- `seed-news.sql` - Direct SQL initialization for sample profile-linked news rows (Postgres)
 - `seed-error-switching.sql` - Scenario SQL seed to add an Error Test Profile and deterministic error rows for profile-switching UI tests
 
 ## Methods
@@ -45,7 +44,7 @@ node server/scripts/seed-profiles.mjs
 
 Use this to seed profiles directly via SQL. This method does not require the API to be running.
 
-`seed.sql` generates each `news_t.news_id` deterministically as `SHA-256(link + title)` using `digest(..., 'sha256')`.
+`seed.sql` generates each `news_t.news_id` deterministically as `SHA-256(url + title)` using `digest(..., 'sha256')`.
 
 ```bash
 psql "$DATABASE_URL" -f server/sql/seed.sql
@@ -57,31 +56,7 @@ Or with discrete Postgres variables:
 psql -h localhost -U postgres -d news_scrapper -f server/sql/seed.sql
 ```
 
-### Method 3: Direct SQL Seeding for Sample News (Postgres)
-
-Use this to seed sample profile-linked news rows directly via SQL.
-
-`seed-news.sql` generates each `news_t.news_id` deterministically as `SHA-256(link + title)` using `digest(..., 'sha256')`.
-
-```bash
-psql "$DATABASE_URL" -f server/sql/seed-news.sql
-```
-
-Or via npm script:
-
-```bash
-npm run seed:news:sql
-```
-
-Note: SQL hash generation requires the `pgcrypto` extension. Ensure `server/sql/migrations/20260516_enable_pgcrypto.sql` (or `server/sql/init.sql`) has been applied.
-
-**Advantages:**
-
-- No API needed
-- Safe to rerun for local demos and testing
-- Fast for bulk operations
-
-### Method 4: Direct SQL Seeding for Error Switching Scenario (Postgres)
+### Method 3: Direct SQL Seeding for Error Switching Scenario (Postgres)
 
 Use this to add a dedicated Error Test Profile and seed three deterministic error rows only for that profile.
 
@@ -130,10 +105,10 @@ Edit `server/sql/seed-profiles.json` to modify predefined profiles:
 - If seeded profile data partially exists, only missing pieces are added
 - Safe to run multiple times without duplicating data
 
-`seed.sql` and `seed-news.sql` are reset-style scripts:
+`seed.sql` is a non-destructive script:
 
-- Existing table rows in their scope are cleared first
-- The same baseline dataset is recreated on each run
+- Existing table rows are preserved
+- The baseline rows are appended when the script is run
 
 ## Default Baseline
 
@@ -144,9 +119,9 @@ Default SQL seed baseline (`server/sql/seed.sql`) creates a profile-switching te
 - **profile_tags_t:** 12 total (3 per profile)
 - **profile_roles_t:** 12 total (3 per profile)
 - **rss_feeds_t:** 12 total (3 per profile)
-- **news_t:** 12 total (3 per profile)
+- **news_t:** 9 total (3 each for sources 2-4; AI Demo/source 1 has 0 seeded news)
 - **error_t:** 3 total (all 3 seeded errors reference the `Error Test Profile` source via `external_ref_type = source`)
 - **notification_profiles_t:** 3
-- **notification_channels_t:** 9 total (3 per notification profile)
+- **notification_channels_t:** 5 total (`AI Demo`: 1, `Slack Alerts`: 2, `Ops Alerts`: 2)
 
-Default API profile seed (`server/sql/seed-profiles.json`) contains 3 profiles.
+Default API profile seed (`server/sql/seed-profiles.json`) contains 4 profiles.

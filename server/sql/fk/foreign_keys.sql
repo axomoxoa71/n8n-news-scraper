@@ -50,6 +50,18 @@ BEGIN
   END IF;
 END $$;
 
+-- profile_tags_t -> tags_t
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'profile_tags_t_tags_id_fkey'
+  ) THEN
+    ALTER TABLE profile_tags_t
+      ADD CONSTRAINT profile_tags_t_tags_id_fkey
+        FOREIGN KEY (tags_id) REFERENCES tags_t(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
 -- source_rss_feeds_t -> sources_t
 DO $$
 BEGIN
@@ -120,6 +132,18 @@ BEGIN
     ALTER TABLE news_tags_t
       ADD CONSTRAINT news_tags_t_news_id_fkey
         FOREIGN KEY (news_id) REFERENCES news_t(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+-- news_tags_t -> tags_t
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'news_tags_t_tags_id_fkey'
+  ) THEN
+    ALTER TABLE news_tags_t
+      ADD CONSTRAINT news_tags_t_tags_id_fkey
+        FOREIGN KEY (tags_id) REFERENCES tags_t(id) ON DELETE CASCADE;
   END IF;
 END $$;
 

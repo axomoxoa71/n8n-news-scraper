@@ -29,7 +29,7 @@ The default SQL seed baseline creates 4 profiles (including `Error Test Profile`
 - `source_rss_feeds_t`: 12 total, with 3 rows per source
 - `profile_tags_t`: 12 total, with 3 rows per profile
 - `profile_roles_t`: 12 total, with 3 rows per profile
-- `news_t`: 12 total, with 3 rows per profile
+- `news_t`: 9 total, with 3 rows per source for sources 2-4 (`AI Demo` source has 0 seeded news rows)
 - `error_t`: 3 total, all seeded for `Error Test Profile`
 - `notification_profiles_t`: 3
 - `notification_channels_t`: 5 total (`AI Demo`: 1, `Slack Alerts`: 2, `Ops Alerts`: 2)
@@ -37,10 +37,7 @@ The default SQL seed baseline creates 4 profiles (including `Error Test Profile`
 ## Seed Files
 
 - `server/sql/seed.sql`
-  - Reset-style baseline seed for sources, source URLs, source RSS feeds, profiles, tags, roles, notification profiles/channels, and news.
-  - `news_t.news_id` is generated deterministically as `SHA-256(link + title)` during insert.
-- `server/sql/seed-news.sql`
-  - Reset-style seed for exactly 9 news rows total, with 3 rows for each of the first 3 profiles.
+  - Non-destructive baseline seed for sources, source URLs, source RSS feeds, profiles, tags, roles, notification profiles/channels, and news.
   - `news_t.news_id` is generated deterministically as `SHA-256(link + title)` during insert.
 - `server/sql/seed-profiles.json`
   - API seeding payload containing 4 profile definitions: `AI Demo`, `Agent Ecosystem`, `Model Releases`, and `Error Test Profile`.
@@ -55,7 +52,7 @@ The default SQL seed baseline creates 4 profiles (including `Error Test Profile`
 
 Use one of the following approaches.
 
-1. SQL reset/reseed (Postgres CLI):
+1. SQL initialize/seed without dropping existing tables (Postgres CLI):
 
 ```bash
 psql "$DATABASE_URL" -f server/sql/migrations/20260516_change_news_id_to_text.sql
@@ -64,7 +61,7 @@ psql "$DATABASE_URL" -f server/sql/init.sql
 psql "$DATABASE_URL" -f server/sql/seed.sql
 ```
 
-`seed.sql` and `seed-news.sql` use `digest(..., 'sha256')` and require `pgcrypto` (enabled by `20260516_enable_pgcrypto.sql` and `server/sql/ddl/00_functions.sql`).
+`seed.sql` uses `digest(..., 'sha256')` and requires `pgcrypto` (enabled by `20260516_enable_pgcrypto.sql` and `server/sql/ddl/00_functions.sql`).
 
 2. API profile seeding only (requires API server running):
 
@@ -72,7 +69,7 @@ psql "$DATABASE_URL" -f server/sql/seed.sql
 node server/scripts/seed-profiles.mjs
 ```
 
-The API seed script performs post-seed verification and fails if seeded data does not match expected profile definitions, expected profile-specific error counts, and the baseline of 3 news records per profile.
+The API seed script performs post-seed verification and fails if seeded data does not match expected profile definitions, expected profile-specific error counts, and the baseline news expectations enforced by the script.
 
 ## Error Switching Scenario Seed
 
@@ -85,8 +82,8 @@ psql "$DATABASE_URL" -f server/sql/seed-error-switching.sql
 This seed file:
 
 - Ensures `Error Test Profile` exists.
-- Re-seeds `error_t` only for `Error Test Profile` with 3 deterministic entries.
-- Is safe to rerun for the same scenario because it replaces scenario-targeted error rows before inserting fresh ones.
+- Adds deterministic `error_t` entries for `Error Test Profile` only when those trace IDs are not already present.
+- Is safe to rerun for the same scenario because it avoids duplicate inserts.
 
 ## When to Add Extra Seed Data
 

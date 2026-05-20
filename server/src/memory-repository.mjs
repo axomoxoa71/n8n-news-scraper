@@ -11,6 +11,7 @@ export function createMemoryProfilesRepository() {
   const profiles = [];
   const sources = [];
   const notificationProfiles = [];
+  const tags = [];
   const newsItems = [];
   const errorItems = [];
   const chats = [];
@@ -22,8 +23,24 @@ export function createMemoryProfilesRepository() {
     return error;
   }
 
-  function createNewsHash(link, title) {
-    return createHash("sha256").update(`${link}${title}`, "utf8").digest("hex");
+  function resolveTagIdsFromInput(profileInput) {
+    if (Array.isArray(profileInput.tagIds) && profileInput.tagIds.length > 0) {
+      return [...new Set(profileInput.tagIds.map((entry) => Number(entry)))].filter(
+        (entry) => Number.isInteger(entry) && entry > 0,
+      );
+    }
+
+    const tagIdByName = new Map(
+      tags.map((entry) => [entry.tag.toLocaleLowerCase(), entry.id]),
+    );
+
+    return [...new Set((profileInput.tags ?? [])
+      .map((entry) => tagIdByName.get(String(entry).trim().toLocaleLowerCase()))
+      .filter((entry) => Number.isInteger(entry) && Number(entry) > 0))];
+  }
+
+  function createNewsHash(url, title) {
+    return createHash("sha256").update(`${url}${title}`, "utf8").digest("hex");
   }
 
   function toLegacyChat(userChat, assistantChat, profileId = null) {
@@ -62,6 +79,21 @@ export function createMemoryProfilesRepository() {
         ],
       };
       notificationProfiles.push(testChannel);
+
+      tags.push(
+        { id: 1, category: "news", tag: "agents" },
+        { id: 2, category: "news", tag: "benchmark" },
+        { id: 3, category: "news", tag: "llm" },
+        { id: 4, category: "news", tag: "governance" },
+        { id: 5, category: "news", tag: "cost" },
+        { id: 6, category: "news", tag: "workflow" },
+        { id: 7, category: "news", tag: "tools" },
+        { id: 8, category: "news", tag: "errors" },
+        { id: 9, category: "news", tag: "trace" },
+        { id: 10, category: "news", tag: "debug" },
+        { id: 11, category: "news", tag: "ui-test" },
+        { id: 12, category: "news", tag: "tooling" },
+      );
 
       const seededProfiles = [
         {
@@ -115,6 +147,10 @@ export function createMemoryProfilesRepository() {
           notificationChannelIds: [testChannel.id],
         },
       ];
+
+      for (const profile of seededProfiles) {
+        profile.tagIds = resolveTagIdsFromInput(profile);
+      }
 
       const seededSources = [
         {
@@ -279,7 +315,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "Anthropic's latest Claude model shows significant improvements in complex reasoning, coding, and mathematical problem-solving tasks.",
               origin: "MIT Technology Review",
-              link: "https://www.technologyreview.com/news/claude-4-reasoning",
+              url: "https://www.technologyreview.com/news/claude-4-reasoning",
               favorite: true,
             },
             {
@@ -287,7 +323,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "New tools make it easier for enterprises to customize open-source language models for domain-specific applications.",
               origin: "Unite AI",
-              link: "https://www.unite.ai/open-source-llm-fine-tuning",
+              url: "https://www.unite.ai/open-source-llm-fine-tuning",
               favorite: false,
             },
             {
@@ -296,7 +332,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "Latest LLM models support extended context windows for large research and code corpora.",
               origin: "AI Universe Explorer",
-              link: "https://aiuniverseexplorer.com/context-window-expansion",
+              url: "https://aiuniverseexplorer.com/context-window-expansion",
               favorite: false,
             },
           ],
@@ -309,7 +345,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "A seeded error scenario highlights regression handling for downstream webhook retries.",
               origin: "QA Feed",
-              link: "https://example.com/errors/news-1",
+              url: "https://example.com/errors/news-1",
               favorite: false,
             },
             {
@@ -317,7 +353,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "Support tooling now links seeded failures to trace identifiers for UI verification.",
               origin: "Support Bulletin",
-              link: "https://example.com/errors/news-2",
+              url: "https://example.com/errors/news-2",
               favorite: false,
             },
             {
@@ -325,7 +361,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "The deterministic failure pack has been refreshed for automated validation.",
               origin: "Test Ops",
-              link: "https://example.com/errors/news-3",
+              url: "https://example.com/errors/news-3",
               favorite: true,
             },
           ],
@@ -338,7 +374,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "A new benchmark compares autonomous coding and research agents across common tasks.",
               origin: "Agent Weekly",
-              link: "https://example.com/news/agent-benchmark",
+              url: "https://example.com/news/agent-benchmark",
               favorite: false,
             },
             {
@@ -346,7 +382,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "Teams can now coordinate planner, executor, and reviewer agents in one pipeline.",
               origin: "Applied Automation",
-              link: "https://example.com/news/agent-workflows",
+              url: "https://example.com/news/agent-workflows",
               favorite: true,
             },
             {
@@ -354,7 +390,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "Vendors report more stable tool-routing and less conversation drift.",
               origin: "Systems Journal",
-              link: "https://example.com/news/tool-calling",
+              url: "https://example.com/news/tool-calling",
               favorite: false,
             },
           ],
@@ -366,7 +402,7 @@ export function createMemoryProfilesRepository() {
               title: "Model release improves long-context reasoning",
               summary: "Vendors report fewer retrieval failures in production.",
               origin: "Applied AI Journal",
-              link: "https://example.com/news/long-context",
+              url: "https://example.com/news/long-context",
               favorite: true,
             },
             {
@@ -374,7 +410,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "Release teams are using broader eval sets to compare model readiness.",
               origin: "Benchmark Daily",
-              link: "https://example.com/news/benchmark-suite",
+              url: "https://example.com/news/benchmark-suite",
               favorite: false,
             },
             {
@@ -382,7 +418,7 @@ export function createMemoryProfilesRepository() {
               summary:
                 "New deployment profiles lower serving cost while preserving quality.",
               origin: "Model Ops Weekly",
-              link: "https://example.com/news/inference-cost",
+              url: "https://example.com/news/inference-cost",
               favorite: false,
             },
           ],
@@ -401,17 +437,25 @@ export function createMemoryProfilesRepository() {
         collection.items.forEach((item, index) => {
           newsItems.unshift({
             id: nextNewsId++,
-            newsId: createNewsHash(item.link, item.title),
+            newsId: createNewsHash(item.url, item.title),
             sourceId: profile.sourceId,
             title: item.title,
             summary: item.summary,
             origin: item.origin,
-            link: item.link,
+            url: item.url,
             timestamp: new Date(
               Date.now() - (index + 1) * 60_000,
             ).toISOString(),
             favorite: item.favorite,
             ragStatus: 'NEW',
+            tagIds:
+              collection.profileName === "AI Demo"
+                ? [1, 2]
+                : collection.profileName === "Error Test Profile"
+                  ? [8, 9]
+                  : collection.profileName === "Agent Ecosystem"
+                    ? [1, 6, 7]
+                    : [2, 3, 12],
           });
         });
       }
@@ -486,6 +530,9 @@ export function createMemoryProfilesRepository() {
     async listSources() {
       return structuredClone(sources);
     },
+    async listTags() {
+      return structuredClone(tags);
+    },
     async createSource(sourceInput) {
       const createdSource = {
         ...structuredClone(sourceInput),
@@ -532,8 +579,10 @@ export function createMemoryProfilesRepository() {
       return true;
     },
     async createProfile(profileInput) {
+      const normalizedTagIds = resolveTagIdsFromInput(profileInput);
       const createdProfile = {
         ...structuredClone(profileInput),
+        tagIds: normalizedTagIds,
         id: nextProfileId++,
       };
 
@@ -549,8 +598,10 @@ export function createMemoryProfilesRepository() {
         return null;
       }
 
+      const normalizedTagIds = resolveTagIdsFromInput(profileInput);
       const updatedProfile = {
         ...structuredClone(profileInput),
+        tagIds: normalizedTagIds,
         id: profileId,
       };
 
@@ -576,9 +627,17 @@ export function createMemoryProfilesRepository() {
 
       return true;
     },
-    async listNews(sourceId) {
+    async listNews(sourceId, tagIds = []) {
       const matching = newsItems
-        .filter((item) => item.sourceId === sourceId)
+        .filter((item) => item.sourceId === sourceId || item.profileId === sourceId)
+        .filter((item) => {
+          if (!Array.isArray(tagIds) || tagIds.length === 0) {
+            return true;
+          }
+
+          const itemTagIds = Array.isArray(item.tagIds) ? item.tagIds : [];
+          return tagIds.some((tagId) => itemTagIds.includes(tagId));
+        })
         .sort(
           (left, right) =>
             new Date(right.timestamp).getTime() -
@@ -589,7 +648,9 @@ export function createMemoryProfilesRepository() {
     },
     async updateNewsFavorite(sourceId, newsId, favorite) {
       const itemIndex = newsItems.findIndex(
-        (item) => item.id === newsId && item.sourceId === sourceId,
+        (item) =>
+          item.id === newsId &&
+          (item.sourceId === sourceId || item.profileId === sourceId),
       );
 
       if (itemIndex === -1) {
@@ -764,9 +825,9 @@ export function createMemoryProfilesRepository() {
     async createNewsItem(newsInput) {
       const newsId =
         newsInput.newsId ??
-        (typeof newsInput.link === "string" &&
+        (typeof newsInput.url === "string" &&
         typeof newsInput.title === "string"
-          ? createNewsHash(newsInput.link, newsInput.title)
+          ? createNewsHash(newsInput.url, newsInput.title)
           : randomUUID());
 
       if (newsItems.some((item) => item.newsId === newsId)) {

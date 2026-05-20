@@ -201,8 +201,8 @@ logEvent({
 
 const seedFilePath = join(__dirname, "../../server/sql/seed-profiles.json");
 
-function createNewsHash(link, title) {
-  return createHash("sha256").update(`${link}${title}`, "utf8").digest("hex");
+function createNewsHash(url, title) {
+  return createHash("sha256").update(`${url}${title}`, "utf8").digest("hex");
 }
 
 async function autoSeedIfEmpty(repo, environmentLabel) {
@@ -253,52 +253,54 @@ async function autoSeedIfEmpty(repo, environmentLabel) {
         await repo.createError({ ...seedError, profileId: createdProfile.id });
       }
 
-      // Seed 3 news items
-      const slug = String(createdProfile.name)
-        .toLocaleLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-      const now = Date.now();
-      const firstLink = `https://example.com/news/${slug}-1`;
-      const firstTitle = `${createdProfile.name}: Daily Briefing 1`;
-      const secondLink = `https://example.com/news/${slug}-2`;
-      const secondTitle = `${createdProfile.name}: Daily Briefing 2`;
-      const thirdLink = `https://example.com/news/${slug}-3`;
-      const thirdTitle = `${createdProfile.name}: Daily Briefing 3`;
-      const newsItems = [
-        {
-          newsId: createNewsHash(firstLink, firstTitle),
-          title: firstTitle,
-          summary: `Seeded sample news item 1 for ${createdProfile.name}.`,
-          origin: "Seed Runner",
-          link: firstLink,
-          timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
-          favorite: false,
-          sourceId: createdProfile.sourceId,
-        },
-        {
-          newsId: createNewsHash(secondLink, secondTitle),
-          title: secondTitle,
-          summary: `Seeded sample news item 2 for ${createdProfile.name}.`,
-          origin: "Seed Runner",
-          link: secondLink,
-          timestamp: new Date(now - 60 * 60 * 1000).toISOString(),
-          favorite: true,
-          sourceId: createdProfile.sourceId,
-        },
-        {
-          newsId: createNewsHash(thirdLink, thirdTitle),
-          title: thirdTitle,
-          summary: `Seeded sample news item 3 for ${createdProfile.name}.`,
-          origin: "Seed Runner",
-          link: thirdLink,
-          timestamp: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
-          favorite: false,
-          sourceId: createdProfile.sourceId,
-        },
-      ];
-      for (const newsItem of newsItems) {
-        await repo.createNewsItem(newsItem);
+      // Seed 3 news items (skip for AI Demo profile - it should remain empty for testing)
+      if (createdProfile.name !== "AI Demo") {
+        const slug = String(createdProfile.name)
+          .toLocaleLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+        const now = Date.now();
+        const firstLink = `https://example.com/news/${slug}-1`;
+        const firstTitle = `${createdProfile.name}: Daily Briefing 1`;
+        const secondLink = `https://example.com/news/${slug}-2`;
+        const secondTitle = `${createdProfile.name}: Daily Briefing 2`;
+        const thirdLink = `https://example.com/news/${slug}-3`;
+        const thirdTitle = `${createdProfile.name}: Daily Briefing 3`;
+        const newsItems = [
+          {
+            newsId: createNewsHash(firstLink, firstTitle),
+            title: firstTitle,
+            summary: `Seeded sample news item 1 for ${createdProfile.name}.`,
+            origin: "Seed Runner",
+            url: firstLink,
+            timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
+            favorite: false,
+            sourceId: createdProfile.sourceId,
+          },
+          {
+            newsId: createNewsHash(secondLink, secondTitle),
+            title: secondTitle,
+            summary: `Seeded sample news item 2 for ${createdProfile.name}.`,
+            origin: "Seed Runner",
+            url: secondLink,
+            timestamp: new Date(now - 60 * 60 * 1000).toISOString(),
+            favorite: true,
+            sourceId: createdProfile.sourceId,
+          },
+          {
+            newsId: createNewsHash(thirdLink, thirdTitle),
+            title: thirdTitle,
+            summary: `Seeded sample news item 3 for ${createdProfile.name}.`,
+            origin: "Seed Runner",
+            url: thirdLink,
+            timestamp: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
+            favorite: false,
+            sourceId: createdProfile.sourceId,
+          },
+        ];
+        for (const newsItem of newsItems) {
+          await repo.createNewsItem(newsItem);
+        }
       }
 
       seededCount += 1;

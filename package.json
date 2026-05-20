@@ -26,8 +26,8 @@
     "openapi:build": "npx @redocly/cli build-docs documentation/api/news-scraper-openapi.yaml -o documentation/api/html/news-scraper-openapi.html",
     "seed:profiles": "node server/scripts/seed-profiles.mjs",
     "seed:sql": "psql \"$DATABASE_URL\" -f server/sql/seed.sql",
-    "seed:news:sql": "psql \"$DATABASE_URL\" -f server/sql/seed-news.sql",
-    "db-clean": "psql \"$DATABASE_URL\" -f server/sql/cleanup-data.sql"
+    "db-clean": "psql \"$DATABASE_URL\" -f server/sql/cleanup-data.sql",
+    "db:drop:all": "psql \"$DATABASE_URL\" -f server/sql/cleanup.sql"
   },
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.74.0",

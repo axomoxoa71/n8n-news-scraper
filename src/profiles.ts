@@ -15,6 +15,12 @@ export type ProfileTag = {
   name: string;
 };
 
+export type SavedTag = {
+  id: number;
+  category: string;
+  tag: string;
+};
+
 export type SourceInput = {
   name: string;
   description: string;
@@ -57,6 +63,7 @@ export type ProfileInput = {
   systemPrompt: string;
   sourceId: number;
   tags: string[];
+  tagIds?: number[];
   roles?: string[];
   notificationProfileId?: number | null;
   notificationChannelIds?: number[];
@@ -73,7 +80,7 @@ export type SavedNewsItem = {
   title: string;
   summary: string;
   origin?: string;
-  link: string;
+  url: string;
   timestamp: string;
   favorite: boolean;
   ragStatus: 'NEW' | 'PROCESSING' | 'DONE';

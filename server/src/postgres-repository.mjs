@@ -10,24 +10,20 @@ async function loadInitSql() {
   const sqlDir = join(currentDirectory, "..", "sql");
   const ddlDir = join(sqlDir, "ddl");
   const fkDir = join(sqlDir, "fk");
-  const cleanupSql = await readFile(join(sqlDir, "cleanup.sql"), "utf8");
 
-  const ddlFiles = (await readdir(ddlDir))
-    .filter((f) => f.endsWith(".sql"))
-    .sort();
+  const ddlFiles = (await readdir(ddlDir)).filter((f) => f.endsWith(".sql"));
+  const sortedDdlFiles = ddlFiles.sort();
+  const tableDdlFiles = sortedDdlFiles.filter((fileName) => !fileName.includes("view"));
+  const viewDdlFiles = sortedDdlFiles.filter((fileName) => fileName.includes("view"));
+  const orderedDdlFiles = [...tableDdlFiles, ...viewDdlFiles];
 
   const ddlSqls = await Promise.all(
-    ddlFiles.map((f) => readFile(join(ddlDir, f), "utf8")),
+    orderedDdlFiles.map((f) => readFile(join(ddlDir, f), "utf8")),
   );
 
   const fkSql = await readFile(join(fkDir, "foreign_keys.sql"), "utf8");
 
-  return [cleanupSql, ...ddlSqls, fkSql].join("\n\n");
-}
-
-async function loadSeedSql() {
-  const sqlDir = join(currentDirectory, "..", "sql");
-  return readFile(join(sqlDir, "seed.sql"), "utf8");
+  return [...ddlSqls, fkSql].join("\n\n");
 }
 
 export function serializeProfileSnapshot(profileInput) {
@@ -117,12 +113,16 @@ function mapProfileRows(
   sourcesById = new Map(),
 ) {
   const tagsByProfileId = new Map();
+  const tagIdsByProfileId = new Map();
   const rolesByProfileId = new Map();
 
   for (const row of tagRows) {
     const currentTags = tagsByProfileId.get(row.profile_id) ?? [];
+    const currentTagIds = tagIdsByProfileId.get(row.profile_id) ?? [];
     currentTags.push(row.tag_name);
+    currentTagIds.push(Number(row.tags_id));
     tagsByProfileId.set(row.profile_id, currentTags);
+    tagIdsByProfileId.set(row.profile_id, currentTagIds);
   }
 
   for (const row of roleRows) {
@@ -163,6 +163,7 @@ function mapProfileRows(
       sourceId: row.source_id !== null ? Number(row.source_id) : null,
       useCustomSources: true,
       tags: tagsByProfileId.get(row.id) ?? [],
+      tagIds: tagIdsByProfileId.get(row.id) ?? [],
       roles: rolesByProfileId.get(row.id) ?? [],
       urls: source?.urls ?? [],
       rssFeeds: source?.rssFeeds ?? [],
@@ -180,10 +181,18 @@ function mapNewsRows(newsRows) {
     title: row.title,
     summary: row.summary,
     origin: row.origin,
-    link: row.link,
+    url: row.url,
     timestamp: (row.published_ts ?? row.created_ts).toISOString(),
     favorite: row.favorite,
     ragStatus: row.rag_status ?? 'NEW',
+  }));
+}
+
+function mapTagRows(tagRows) {
+  return tagRows.map((row) => ({
+    id: row.id,
+    category: row.category,
+    tag: row.tag,
   }));
 }
 
@@ -252,10 +261,14 @@ async function listProfilesWithClient(client, profileId) {
   const profileIds = profileResult.rows.map((row) => row.id);
   const tagResult = await client.query(
     `
-      SELECT profile_id, tag_name
+      SELECT
+        profile_tags_t.profile_id,
+        profile_tags_t.tags_id,
+        tags_t.tag AS tag_name
       FROM profile_tags_t
+      INNER JOIN tags_t ON tags_t.id = profile_tags_t.tags_id
       WHERE profile_id = ANY($1::int[])
-      ORDER BY profile_id ASC, position ASC, id ASC
+      ORDER BY profile_id ASC, profile_tags_t.id ASC
     `,
     [profileIds],
   );
@@ -381,6 +394,18 @@ async function listSourcesWithClient(client, sourceId) {
   return mapSourceRows(sourceResult.rows, urlResult.rows, rssResult.rows);
 }
 
+async function listTagsWithClient(client) {
+  const result = await client.query(
+    `
+      SELECT id, category, tag
+      FROM tags_t
+      ORDER BY lower(category) ASC, lower(tag) ASC, id ASC
+    `,
+  );
+
+  return mapTagRows(result.rows);
+}
+
 async function getSourceById(client, sourceId) {
   const sources = await listSourcesWithClient(client, sourceId);
   return sources[0] ?? null;
@@ -470,7 +495,13 @@ async function getNotificationProfileById(client, profileId) {
 }
 
 export function createPostgresProfilesRepository(options) {
-  const pool = new Pool(options.connection);
+  const poolConfig = {
+    ...options.connection,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    statement_timeout: 30000,
+  };
+  const pool = new Pool(poolConfig);
   const shouldInitialize = options.initialize !== false;
   const sessionProfileMap = new Map();
 
@@ -498,13 +529,12 @@ export function createPostgresProfilesRepository(options) {
 
   return {
     async initialize() {
+      if (!shouldInitialize) {
+        return;
+      }
+
       const initSql = await loadInitSql();
       await pool.query(initSql);
-
-      if (shouldInitialize) {
-        const seedSql = await loadSeedSql();
-        await pool.query(seedSql);
-      }
     },
     async listProfiles() {
       const client = await pool.connect();
@@ -558,13 +588,13 @@ export function createPostgresProfilesRepository(options) {
           [profileSnapshotWithId, profileId],
         );
 
-        for (const [index, entry] of profileInput.tags.entries()) {
+        for (const entry of profileInput.tagIds ?? []) {
           await client.query(
             `
-              INSERT INTO profile_tags_t (profile_id, position, tag_name)
-              VALUES ($1, $2, $3)
+              INSERT INTO profile_tags_t (profile_id, tags_id)
+              VALUES ($1, $2)
             `,
-            [profileId, index, entry],
+            [profileId, entry],
           );
         }
 
@@ -632,13 +662,13 @@ export function createPostgresProfilesRepository(options) {
           [profileId],
         );
 
-        for (const [index, entry] of profileInput.tags.entries()) {
+        for (const entry of profileInput.tagIds ?? []) {
           await client.query(
             `
-              INSERT INTO profile_tags_t (profile_id, position, tag_name)
-              VALUES ($1, $2, $3)
+              INSERT INTO profile_tags_t (profile_id, tags_id)
+              VALUES ($1, $2)
             `,
-            [profileId, index, entry],
+            [profileId, entry],
           );
         }
 
@@ -672,6 +702,15 @@ export function createPostgresProfilesRepository(options) {
 
       try {
         return await listSourcesWithClient(client);
+      } finally {
+        client.release();
+      }
+    },
+    async listTags() {
+      const client = await pool.connect();
+
+      try {
+        return await listTagsWithClient(client);
       } finally {
         client.release();
       }
@@ -819,7 +858,8 @@ export function createPostgresProfilesRepository(options) {
       ]);
       return result.rowCount > 0;
     },
-    async listNews(sourceId) {
+    async listNews(sourceId, tagIds = []) {
+      const hasTagFilter = Array.isArray(tagIds) && tagIds.length > 0;
       const result = await pool.query(
         `
           SELECT
@@ -829,16 +869,17 @@ export function createPostgresProfilesRepository(options) {
             title,
             summary,
             origin,
-            link,
+            url,
             published_ts,
             created_ts,
             favorite,
             rag_status
           FROM news_t
           WHERE source_id = $1
+          ${hasTagFilter ? "AND EXISTS (SELECT 1 FROM news_tags_t news_tags WHERE news_tags.news_id = news_t.id AND news_tags.tags_id = ANY($2::int[]))" : ""}
           ORDER BY published_ts DESC, id DESC
         `,
-        [sourceId],
+        hasTagFilter ? [sourceId, tagIds] : [sourceId],
       );
 
       return mapNewsRows(result.rows);
@@ -858,7 +899,7 @@ export function createPostgresProfilesRepository(options) {
             title,
             summary,
             origin,
-            link,
+            url,
             published_ts,
             created_ts,
             favorite,
@@ -886,7 +927,7 @@ export function createPostgresProfilesRepository(options) {
             title,
             summary,
             origin,
-            link,
+            url,
             published_ts,
             favorite
           )
@@ -898,7 +939,7 @@ export function createPostgresProfilesRepository(options) {
             title,
             summary,
             origin,
-            link,
+            url,
             published_ts,
             created_ts,
             favorite,
@@ -910,7 +951,7 @@ export function createPostgresProfilesRepository(options) {
           newsInput.title,
           newsInput.summary,
           newsInput.origin,
-          newsInput.link,
+          newsInput.url,
           publishedTimestamp,
           newsInput.favorite === true,
         ],

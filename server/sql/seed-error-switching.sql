@@ -29,15 +29,6 @@ WHERE NOT EXISTS (
   WHERE lower(name) = lower('Error Test Profile')
 );
 
--- Re-seed deterministic errors for switching tests on Error Test Profile only.
-WITH target_profile AS (
-  SELECT id, name
-  FROM profiles_t
-  WHERE lower(name) = lower('Error Test Profile')
-)
-DELETE FROM error_t
-WHERE profile_id IN (SELECT id FROM target_profile);
-
 WITH target_profile AS (
   SELECT id, name
   FROM profiles_t
@@ -130,6 +121,11 @@ SELECT
 FROM target_profile AS profile
 JOIN error_templates AS template
   ON lower(profile.name) = lower(template.profile_name)
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM error_t AS existing_error
+  WHERE existing_error.trace_id = template.trace_id
+)
 ORDER BY profile.id;
 
 COMMIT;

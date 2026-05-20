@@ -19,6 +19,7 @@ import {
   generateActionTraceId,
   setApiEnvironment,
   listNews,
+  listTags,
   listProfiles,
   listSources,
   createSource,
@@ -54,6 +55,7 @@ import {
   type ProfileUrl,
   type RssFeed,
   type SavedProfile,
+  type SavedTag,
   type Source,
   type SourceInput,
   type SavedNewsItem,
@@ -113,6 +115,10 @@ function resolveChatbotVoiceLanguage(
   }
 
   return "en-US";
+}
+
+function formatNameWithId(name: string, id: number): string {
+  return `(${id}) ${name}`;
 }
 
 function NotificationChannelMultiSelect({
@@ -284,6 +290,16 @@ function NotificationChannelMultiSelect({
           </span>
         </div>
 
+        {selectedTags.length > 0 ? (
+          <ul className="news-tag-selected-list" aria-label="Selected tags">
+            {selectedTags.map((tag) => (
+              <li key={tag.id} className="news-tag-selected-item">
+                {tag.tag}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         {isOpen &&
           createPortal(
             <ul
@@ -348,6 +364,278 @@ function NotificationChannelMultiSelect({
   );
 }
 
+type TagMultiSelectProps = {
+  tags: SavedTag[];
+  selectedIds: number[];
+  onChange: (ids: number[]) => void;
+  disabled?: boolean;
+};
+
+function TagMultiSelect({
+  tags,
+  selectedIds,
+  onChange,
+  disabled = false,
+}: TagMultiSelectProps) {
+  const [query, setQuery] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const controlRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [listPosition, setListPosition] = useState({
+    left: 0,
+    top: 0,
+    width: 220,
+  });
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLocaleLowerCase();
+    if (!q) {
+      return tags;
+    }
+
+    return tags.filter((tag) => {
+      const label = `${tag.category} ${tag.tag}`.toLocaleLowerCase();
+      return label.includes(q);
+    });
+  }, [tags, query]);
+
+  useEffect(() => {
+    if (isOpen && controlRef.current) {
+      const rect = controlRef.current.getBoundingClientRect();
+      setListPosition({
+        left: rect.left,
+        top: rect.bottom + 4,
+        width: rect.width,
+      });
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+        setQuery("");
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  function openDropdown() {
+    setQuery("");
+    setActiveIndex(-1);
+    setIsOpen(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
+
+  const normalizedSelectedIds = useMemo(
+    () =>
+      [...new Set(selectedIds.map((id) => Number(id)))].filter((id) =>
+        Number.isInteger(id),
+      ),
+    [selectedIds],
+  );
+
+  function toggleTag(tagId: number) {
+    const isSelected = normalizedSelectedIds.includes(tagId);
+    const nextIds = isSelected
+      ? normalizedSelectedIds.filter((id) => id !== tagId)
+      : [...normalizedSelectedIds, tagId];
+    onChange(nextIds);
+  }
+
+  function handleInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const next = Math.min(activeIndex + 1, filtered.length - 1);
+      setActiveIndex(next);
+      listRef.current?.children[next]?.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      const prev = Math.max(activeIndex - 1, 0);
+      setActiveIndex(prev);
+      listRef.current?.children[prev]?.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const target = activeIndex >= 0 ? filtered[activeIndex] : null;
+      if (target) {
+        toggleTag(target.id);
+      }
+    } else if (event.key === "Escape") {
+      setIsOpen(false);
+      setQuery("");
+    }
+  }
+
+  const selectedTags = normalizedSelectedIds
+    .map((id) => tags.find((tag) => tag.id === id))
+    .filter((tag): tag is SavedTag => Boolean(tag));
+
+  const maxVisibleNames = 3;
+  const visibleNames = selectedTags
+    .slice(0, maxVisibleNames)
+    .map((tag) => tag.tag);
+  const hiddenCount = selectedTags.length - visibleNames.length;
+  const displayValue =
+    selectedTags.length === 0
+      ? "Select tags"
+      : `${visibleNames.join(", ")}${hiddenCount > 0 ? ` +${hiddenCount}` : ""}`;
+
+  const listboxId = "news-tag-multi-select-listbox";
+  const labelId = "news-tag-multi-select-label";
+
+  return (
+    <div className="field news-tag-multi-select">
+      <label id={labelId} className="news-tag-label">
+        Tags
+      </label>
+      <div
+        className="news-tag-multi-select-control"
+        ref={containerRef}
+        role="group"
+      >
+        <div
+          className={`news-tag-control${isOpen ? " is-open" : ""}`}
+          ref={controlRef}
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+          aria-labelledby={labelId}
+          aria-owns={listboxId}
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            className="news-tag-input"
+            value={isOpen ? query : displayValue}
+            placeholder={isOpen ? "Type to filter…" : displayValue}
+            readOnly={!isOpen}
+            disabled={disabled || tags.length === 0}
+            aria-autocomplete="list"
+            aria-controls={listboxId}
+            aria-activedescendant={
+              activeIndex >= 0
+                ? `news-tag-option-${filtered[activeIndex]?.id}`
+                : undefined
+            }
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActiveIndex(-1);
+            }}
+            onClick={() => {
+              if (!isOpen) {
+                openDropdown();
+              }
+            }}
+            onFocus={() => {
+              if (!isOpen) {
+                openDropdown();
+              }
+            }}
+            onKeyDown={handleInputKeyDown}
+          />
+          <span className="news-tag-chevron" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path
+                d="M9 6L15 12L9 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+        </div>
+
+        <div className="news-tag-selected-wrap">
+          <p className="news-tag-selected-title">Selected tags</p>
+          {selectedTags.length > 0 ? (
+            <ul className="news-tag-selected-list" aria-label="Selected tags">
+              {selectedTags.map((tag) => (
+                <li key={tag.id} className="news-tag-selected-item">
+                  {tag.tag}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="news-tag-selected-empty">No tags selected.</p>
+          )}
+        </div>
+
+        {isOpen &&
+          createPortal(
+            <ul
+              id={listboxId}
+              ref={listRef}
+              className="news-tag-listbox"
+              style={{
+                left: `${listPosition.left}px`,
+                top: `${listPosition.top}px`,
+                width: `${listPosition.width}px`,
+              }}
+              role="listbox"
+              aria-label="News tags"
+              aria-multiselectable="true"
+            >
+              {filtered.length === 0 ? (
+                <li className="news-tag-empty" role="option" aria-selected={false}>
+                  No matching tags
+                </li>
+              ) : (
+                filtered.map((tag, index) => {
+                  const isSelected = selectedIds.includes(tag.id);
+                  const label =
+                    tag.category.trim().length > 0
+                      ? `${tag.category}: ${tag.tag}`
+                      : tag.tag;
+
+                  return (
+                    <li
+                      key={tag.id}
+                      id={`news-tag-option-${tag.id}`}
+                      role="option"
+                      aria-selected={isSelected}
+                      className={[
+                        "news-tag-option",
+                        isSelected ? "is-selected" : "",
+                        index === activeIndex ? "is-active" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        toggleTag(tag.id);
+                      }}
+                      onMouseEnter={() => setActiveIndex(index)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        readOnly
+                        tabIndex={-1}
+                        aria-hidden="true"
+                      />
+                      <span>{label}</span>
+                    </li>
+                  );
+                })
+              )}
+            </ul>,
+            document.body,
+          )}
+      </div>
+    </div>
+  );
+}
+
 type EditorTab = "source" | "notification" | "tags" | "roles";
 type SourceEditorTab = "urls" | "rss";
 
@@ -388,7 +676,7 @@ type ProfileDraft = {
   description: string;
   systemPrompt: string;
   sourceId: number | null;
-  tags: ProfileTag[];
+  tagIds: number[];
   roles: ProfileTag[];
   notificationChannelIds: number[];
   notificationProfileId?: number | null;
@@ -494,26 +782,6 @@ function normalizeTagName(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
-function hasDuplicateTagNames(tags: string[]) {
-  const seenTags = new Set<string>();
-
-  for (const tag of tags) {
-    const normalizedTag = normalizeTagName(tag).toLocaleLowerCase();
-
-    if (!normalizedTag) {
-      continue;
-    }
-
-    if (seenTags.has(normalizedTag)) {
-      return true;
-    }
-
-    seenTags.add(normalizedTag);
-  }
-
-  return false;
-}
-
 function hasDuplicateRoleNames(roles: string[]) {
   const seenRoles = new Set<string>();
 
@@ -540,6 +808,7 @@ type ProfileFormProps = {
   isSaving: boolean;
   formError: string;
   headingId?: string;
+  availableTags: SavedTag[];
   sources: Source[];
   notificationChannels?: NotificationChannel[];
   onSubmit: (input: ProfileInput) => Promise<void>;
@@ -574,7 +843,7 @@ function createDefaultProfileDraft(): ProfileDraft {
     description: "",
     systemPrompt: "",
     sourceId: null,
-    tags: [],
+    tagIds: [],
     roles: [],
     notificationChannelIds: [],
     notificationProfileId: null,
@@ -622,16 +891,27 @@ function toSourceInput(draft: SourceDraft): SourceInput {
   };
 }
 
-function mapProfileToDraft(profile: SavedProfile): ProfileDraft {
+function mapProfileToDraft(
+  profile: SavedProfile,
+  availableTags: SavedTag[],
+): ProfileDraft {
+  const tagIdByName = new Map(
+    availableTags.map((entry) => [entry.tag.toLocaleLowerCase(), entry.id]),
+  );
+
+  const resolvedTagIds =
+    Array.isArray(profile.tagIds) && profile.tagIds.length > 0
+      ? profile.tagIds
+      : (profile.tags ?? [])
+          .map((entry) => tagIdByName.get(entry.toLocaleLowerCase()))
+          .filter((entry): entry is number => Number.isInteger(entry));
+
   return {
     name: profile.name,
     description: profile.description,
     systemPrompt: profile.systemPrompt ?? "",
     sourceId: profile.sourceId,
-    tags: profile.tags.map((entry, index) => ({
-      id: index + 1,
-      name: entry,
-    })),
+    tagIds: [...new Set(resolvedTagIds)],
     roles: (profile.roles ?? []).map((entry, index) => ({
       id: index + 1,
       name: entry,
@@ -647,15 +927,21 @@ function getNextId<T extends { id: number }>(entries: T[]) {
   return Math.max(...entries.map((entry) => entry.id), 0) + 1;
 }
 
-function toProfileInput(draft: ProfileDraft): ProfileInput {
+function toProfileInput(draft: ProfileDraft, availableTags: SavedTag[]): ProfileInput {
+  const tagsById = new Map(availableTags.map((entry) => [entry.id, entry.tag]));
+  const normalizedTagIds = [...new Set(draft.tagIds)]
+    .filter((entry) => Number.isInteger(entry) && entry > 0)
+    .filter((entry) => tagsById.has(entry));
+
   return {
     name: draft.name.trim(),
     description: draft.description.trim(),
     systemPrompt: draft.systemPrompt.trim(),
     sourceId: draft.sourceId ?? 0,
-    tags: draft.tags
-      .map((entry) => normalizeTagName(entry.name))
-      .filter(Boolean),
+    tags: normalizedTagIds
+      .map((entry) => tagsById.get(entry))
+      .filter((entry): entry is string => typeof entry === "string"),
+    tagIds: normalizedTagIds,
     roles: draft.roles
       .map((entry) => normalizeTagName(entry.name))
       .filter(Boolean),
@@ -672,10 +958,6 @@ function validateProfileDraft(input: ProfileInput) {
 
   if (!Number.isInteger(input.sourceId) || input.sourceId <= 0) {
     return "Please select a source.";
-  }
-
-  if (hasDuplicateTagNames(input.tags)) {
-    return "Tag names must be unique.";
   }
 
   if (hasDuplicateRoleNames(input.roles ?? [])) {
@@ -885,6 +1167,11 @@ function renderMarkdown(text: string) {
           a: (props) => (
             <a {...props} target="_blank" rel="noopener noreferrer" />
           ),
+          table: (props) => (
+            <div className="markdown-table-wrap">
+              <table {...props} />
+            </div>
+          ),
         }}
       >
         {text}
@@ -982,7 +1269,7 @@ function Home() {
           <h2>News</h2>
           <p>
             Review collected entries tied to your selected profile with title,
-            summary, origin, and source link.
+            summary, origin, and source URL.
           </p>
           <Link to="/news" className="menu-link">
             Open News
@@ -999,6 +1286,7 @@ function ProfileForm({
   isSaving,
   formError,
   headingId,
+  availableTags,
   sources,
   notificationChannels,
   onSubmit,
@@ -1007,7 +1295,6 @@ function ProfileForm({
 }: ProfileFormProps) {
   const [draft, setDraft] = useState<ProfileDraft>(initialDraft);
   const [activeTab, setActiveTab] = useState<EditorTab>("source");
-  const [tagInput, setTagInput] = useState("");
   const [roleInput, setRoleInput] = useState("");
   const [localError, setLocalError] = useState("");
   const [isScrapingSource, setIsScrapingSource] = useState(false);
@@ -1020,7 +1307,6 @@ function ProfileForm({
   useEffect(() => {
     setDraft(initialDraft);
     setActiveTab("source");
-    setTagInput("");
     setRoleInput("");
     setLocalError("");
     setSourceScrapeError("");
@@ -1068,46 +1354,6 @@ function ProfileForm({
     }
   }
 
-  function addTag(rawValue: string) {
-    const normalizedTag = normalizeTagName(rawValue);
-
-    if (!normalizedTag) {
-      setTagInput("");
-      return;
-    }
-
-    const duplicateExists = draft.tags.some(
-      (entry) =>
-        entry.name.toLocaleLowerCase() === normalizedTag.toLocaleLowerCase(),
-    );
-
-    if (duplicateExists) {
-      setLocalError("Tag names must be unique.");
-      return;
-    }
-
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      tags: [
-        ...currentDraft.tags,
-        { id: getNextId(currentDraft.tags), name: normalizedTag },
-      ],
-    }));
-    setTagInput("");
-    setLocalError("");
-  }
-
-  function removeTag(tagId: number) {
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      tags: currentDraft.tags.filter((entry) => entry.id !== tagId),
-    }));
-
-    if (localError === "Tag names must be unique.") {
-      setLocalError("");
-    }
-  }
-
   function addRole(rawValue: string) {
     const normalizedRole = normalizeTagName(rawValue);
 
@@ -1151,7 +1397,7 @@ function ProfileForm({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const profileInput = toProfileInput(draft);
+    const profileInput = toProfileInput(draft, availableTags);
     const validationError = validateProfileDraft(profileInput);
 
     if (validationError) {
@@ -1280,24 +1526,26 @@ function ProfileForm({
               <p className="section-kicker">Section</p>
               <h3 id="profile-source-title">SOURCE</h3>
             </div>
-            <button
-              className={`primary-button compact-button news-scrape-btn${sourceScrapeSuccess ? " send-success" : ""}`}
-              type="button"
-              disabled={isScrapingSource || !draft.sourceId}
-              aria-label={
-                sourceScrapeSuccess ? "Scrape complete" : "Scrape source"
-              }
-              title={sourceScrapeSuccess ? "Scrape complete" : "Scrape source"}
-              onClick={() => {
-                void handleSourceScrape();
-              }}
-            >
-              {isScrapingSource
-                ? "..."
-                : sourceScrapeSuccess
-                  ? "Done"
-                  : "Scrape source"}
-            </button>
+            {mode === "create" ? (
+              <button
+                className={`primary-button compact-button news-scrape-btn${sourceScrapeSuccess ? " send-success" : ""}`}
+                type="button"
+                disabled={isScrapingSource || !draft.sourceId}
+                aria-label={
+                  sourceScrapeSuccess ? "Scrape complete" : "Scrape source"
+                }
+                title={sourceScrapeSuccess ? "Scrape complete" : "Scrape source"}
+                onClick={() => {
+                  void handleSourceScrape();
+                }}
+              >
+                {isScrapingSource
+                  ? "..."
+                  : sourceScrapeSuccess
+                    ? "Done"
+                    : "Scrape source"}
+              </button>
+            ) : null}
           </div>
 
           <p className="section-caption">
@@ -1442,62 +1690,20 @@ function ProfileForm({
             </div>
           </div>
 
-          <div className="tag-entry-row">
-            <label className="field tag-entry-field">
-              <span>Add tag</span>
-              <input
-                type="text"
-                value={tagInput}
-                onChange={(event) => {
-                  setTagInput(event.target.value);
-                  if (
-                    localError === "Tag names must be unique." ||
-                    localError === "Role names must be unique."
-                  ) {
-                    setLocalError("");
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === ",") {
-                    event.preventDefault();
-                    addTag(tagInput);
-                  }
-                }}
-                placeholder="Type a tag and press Enter"
-              />
-            </label>
-            <button
-              type="button"
-              className="ghost-button compact-button"
-              onClick={() => addTag(tagInput)}
-            >
-              Add tag
-            </button>
-          </div>
+          <TagMultiSelect
+            tags={availableTags}
+            selectedIds={draft.tagIds}
+            onChange={(ids) =>
+              setDraft((currentDraft) => ({
+                ...currentDraft,
+                tagIds: ids,
+              }))
+            }
+          />
 
           <p className="section-caption">
-            Tags are stored per profile and duplicate names are blocked.
+            Profile tags must be selected from the central tag catalog.
           </p>
-
-          {draft.tags.length > 0 ? (
-            <ul className="tag-chip-list" aria-label="Profile tags">
-              {draft.tags.map((entry) => (
-                <li key={entry.id} className="tag-chip-item">
-                  <span className="tag-chip-label">{entry.name}</span>
-                  <button
-                    type="button"
-                    className="tag-chip-remove"
-                    aria-label={`Remove tag ${entry.name}`}
-                    onClick={() => removeTag(entry.id)}
-                  >
-                    x
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="section-caption">No tags added yet.</p>
-          )}
         </section>
       )}
 
@@ -2495,6 +2701,7 @@ function StartupEnvironmentDialog({
 type ProfilesPageProps = {
   profiles: SavedProfile[];
   sources: Source[];
+  availableTags: SavedTag[];
   isLoadingProfiles: boolean;
   profilesError: string;
   notificationChannels: NotificationChannel[];
@@ -2508,6 +2715,7 @@ type ProfilesPageProps = {
 function ProfilesPage({
   profiles,
   sources,
+  availableTags,
   isLoadingProfiles,
   profilesError,
   notificationChannels,
@@ -2563,7 +2771,7 @@ function ProfilesPage({
 
   function startEditingProfile(profile: SavedProfile) {
     setEditingProfileId(profile.id);
-    setEditDraft(mapProfileToDraft(profile));
+    setEditDraft(mapProfileToDraft(profile, availableTags));
     setFormError("");
   }
 
@@ -2921,7 +3129,7 @@ function ProfilesPage({
             <ul className="profile-name-list" aria-label="Source entries">
               {sources.map((source) => (
                 <li key={source.id}>
-                  <span>{source.name}</span>
+                  <span>{formatNameWithId(source.name, source.id)}</span>
                   <div className="saved-profile-actions">
                     <button
                       type="button"
@@ -3020,7 +3228,7 @@ function ProfilesPage({
             <ul className="profile-name-list" aria-label="Profile entries">
               {profiles.map((profile) => (
                 <li key={profile.id}>
-                  <span>{profile.name}</span>
+                  <span>{formatNameWithId(profile.name, profile.id)}</span>
                   <div className="saved-profile-actions">
                     <button
                       type="button"
@@ -3090,7 +3298,7 @@ function ProfilesPage({
             >
               {notificationChannels.map((channel) => (
                 <li key={channel.id}>
-                  <span>{channel.name}</span>
+                  <span>{formatNameWithId(channel.name, channel.id)}</span>
                   <div className="saved-profile-actions">
                     <button
                       type="button"
@@ -3155,6 +3363,7 @@ function ProfilesPage({
             isSaving={isSavingProfile}
             formError={formError}
             headingId="edit-profile-title"
+            availableTags={availableTags}
             sources={sources}
             notificationChannels={notificationChannels}
             onSubmit={handleUpdateProfile}
@@ -3179,6 +3388,7 @@ function ProfilesPage({
             isSaving={isSavingProfile}
             formError={formError}
             headingId="add-profile-title"
+            availableTags={availableTags}
             sources={sources}
             notificationChannels={notificationChannels}
             onSubmit={handleCreateProfile}
@@ -3195,6 +3405,7 @@ function ProfilesPage({
         <ModalDialog
           title="Edit notification channel dialog"
           onClose={cancelEditNotificationChannel}
+          className="profile-dialog-card"
         >
           <NotificationChannelForm
             mode="edit"
@@ -3209,7 +3420,11 @@ function ProfilesPage({
       ) : null}
 
       {editingSourceId !== null ? (
-        <ModalDialog title="Edit source dialog" onClose={cancelEditSource}>
+        <ModalDialog
+          title="Edit source dialog"
+          onClose={cancelEditSource}
+          className="profile-dialog-card"
+        >
           <SourceForm
             mode="edit"
             initialDraft={editSourceDraft}
@@ -3230,6 +3445,7 @@ function ProfilesPage({
             setIsCreateSourceDialogOpen(false);
             setSourceFormError("");
           }}
+          className="profile-dialog-card"
         >
           <SourceForm
             mode="create"
@@ -3254,6 +3470,7 @@ function ProfilesPage({
             setIsCreateNotificationDialogOpen(false);
             setNotificationFormError("");
           }}
+          className="profile-dialog-card"
         >
           <NotificationChannelForm
             mode="create"
@@ -4500,6 +4717,16 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
   const [profileErrorCount, setProfileErrorCount] = useState(0);
   const itemsPerPage = 10;
 
+  const activeProfileTagIds = useMemo(() => {
+    if (!selectedProfile || !Array.isArray(selectedProfile.tagIds)) {
+      return [];
+    }
+
+    return selectedProfile.tagIds.filter(
+      (entry) => Number.isInteger(entry) && entry > 0,
+    );
+  }, [selectedProfile]);
+
   async function loadProfileErrorCount() {
     try {
       const actionTraceId = generateActionTraceId();
@@ -4524,6 +4751,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
     const refreshOnly = options?.refreshOnly ?? false;
     setNewsError("");
     const actionTraceId = generateActionTraceId();
+    const sourceId = selectedProfile.sourceId ?? selectedProfile.id;
 
     if (refreshOnly) {
       setIsRefreshing(true);
@@ -4532,7 +4760,11 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
     }
 
     try {
-      const loadedNews = await listNews(selectedProfile.id, actionTraceId);
+      const loadedNews = await listNews(
+        sourceId,
+        activeProfileTagIds,
+        actionTraceId,
+      );
       setNewsItems(loadedNews);
       setLastRefreshedAt(new Date());
       // Keep error warning in sync with each news refresh.
@@ -4565,7 +4797,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
 
     void loadNews();
     void loadProfileErrorCount();
-  }, [selectedProfile?.id]);
+  }, [selectedProfile?.id, activeProfileTagIds.join(",")]);
 
   useEffect(() => {
     if (!selectedProfile) {
@@ -4593,7 +4825,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
     return () => {
       window.clearInterval(intervalHandle);
     };
-  }, [selectedProfile?.id, autoRefreshEnabled]);
+  }, [selectedProfile?.id, autoRefreshEnabled, activeProfileTagIds.join(",")]);
 
   // Reset page when search or filters change
   useEffect(() => {
@@ -4653,9 +4885,10 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
     });
 
     try {
+      const sourceId = selectedProfile.sourceId ?? selectedProfile.id;
       const updatedItem = await updateNewsFavorite(
         item.id,
-        selectedProfile.id,
+        sourceId,
         !item.favorite,
         actionTraceId,
       );
@@ -4849,7 +5082,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
               <span role="columnheader">Summary</span>
               <span role="columnheader">Origin</span>
               <span role="columnheader">Timestamp</span>
-              <span role="columnheader">Link</span>
+              <span role="columnheader">URL</span>
               <span role="columnheader" className="news-favorite-header">
                 <span>Favorite</span>
               </span>
@@ -4862,7 +5095,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
                 <span role="cell">{formatNewsTimestamp(item.timestamp)}</span>
                 <a
                   role="cell"
-                  href={item.link}
+                  href={item.url}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -5423,6 +5656,7 @@ function App() {
     useState<ApiEnvironment>(() => getInitialAppEnvironment() ?? "production");
   const [profiles, setProfiles] = useState<SavedProfile[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
+  const [availableTags, setAvailableTags] = useState<SavedTag[]>([]);
   const [profilesError, setProfilesError] = useState("");
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
   const [notificationChannels, setNotificationChannels] = useState<
@@ -5492,6 +5726,16 @@ function App() {
     }
   }
 
+  async function loadTags() {
+    const actionTraceId = generateActionTraceId();
+    try {
+      const loaded = await listTags(actionTraceId);
+      setAvailableTags(loaded);
+    } catch {
+      setAvailableTags([]);
+    }
+  }
+
   useEffect(() => {
     if (activeEnvironment === null) {
       return;
@@ -5518,6 +5762,7 @@ function App() {
 
     void loadProfiles();
     void loadSources();
+    void loadTags();
     void loadNotificationChannels();
   }, [activeEnvironment]);
 
@@ -5683,6 +5928,7 @@ function App() {
               <ProfilesPage
                 profiles={profiles}
                 sources={sources}
+                availableTags={availableTags}
                 isLoadingProfiles={isLoadingProfiles}
                 profilesError={profilesError}
                 notificationChannels={notificationChannels}

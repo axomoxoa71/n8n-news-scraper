@@ -161,6 +161,39 @@ function parseOptionalInteger(value) {
   return Number.isInteger(parsed) ? parsed : null;
 }
 
+function parseTagIds(value) {
+  if (value === undefined || value === null || value === "") {
+    return [];
+  }
+
+  const rawValues = Array.isArray(value) ? value : [value];
+  const tagIds = [];
+
+  for (const rawValue of rawValues) {
+    const parts = String(rawValue)
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (parts.length === 0) {
+      return null;
+    }
+
+    for (const part of parts) {
+      const parsed = Number(part);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return null;
+      }
+
+      if (!tagIds.includes(parsed)) {
+        tagIds.push(parsed);
+      }
+    }
+  }
+
+  return tagIds;
+}
+
 function parseChatHistoryTimePeriod(value) {
   if (value === undefined || value === null || value === "") {
     return "last_day";
@@ -380,12 +413,12 @@ function parseErrorInput(body) {
 }
 
 function parseNewsInput(body) {
-  const sourceId = parseProfileId(body?.sourceId);
+  const sourceId = parseProfileId(body?.sourceId ?? body?.profileId);
   const newsId = typeof body?.newsId === "string" ? body.newsId.trim() : "";
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   const summary = typeof body?.summary === "string" ? body.summary.trim() : "";
   const origin = typeof body?.origin === "string" ? body.origin.trim() : "";
-  const link = typeof body?.link === "string" ? body.link.trim() : "";
+  const url = typeof body?.url === "string" ? body.url.trim() : "";
   const favorite = typeof body?.favorite === "boolean" ? body.favorite : false;
   const timestamp =
     typeof body?.timestamp === "string" && body.timestamp.trim()
@@ -393,7 +426,7 @@ function parseNewsInput(body) {
       : new Date().toISOString();
 
   if (sourceId === null) {
-    return { valid: false, error: "sourceId must be a positive integer." };
+    return { valid: false, error: "profileId must be a positive integer." };
   }
 
   if (!newsId) {
@@ -408,8 +441,8 @@ function parseNewsInput(body) {
     return { valid: false, error: "summary is required." };
   }
 
-  if (!link) {
-    return { valid: false, error: "link is required." };
+  if (!url) {
+    return { valid: false, error: "url is required." };
   }
 
   const parsedTimestamp = new Date(timestamp);
@@ -425,7 +458,7 @@ function parseNewsInput(body) {
       title,
       summary,
       origin,
-      link,
+      url,
       timestamp: parsedTimestamp.toISOString(),
       favorite,
     },
@@ -578,6 +611,91 @@ async function validateSourceSelection(repository, profileInput) {
   };
 }
 
+async function validateProfileTagSelection(repository, profileInput) {
+  if (typeof repository.listTags !== "function") {
+    return { valid: true, value: profileInput };
+  }
+
+  const availableTags = await repository.listTags();
+  const tagsById = new Map();
+  const tagIdByName = new Map();
+
+  for (const tag of availableTags) {
+    const tagId = Number(tag.id);
+    const tagName = typeof tag.tag === "string" ? tag.tag.trim() : "";
+
+    if (!Number.isInteger(tagId) || tagId <= 0 || !tagName) {
+      continue;
+    }
+
+    tagsById.set(tagId, tagName);
+    tagIdByName.set(tagName.toLocaleLowerCase(), tagId);
+  }
+
+  const resolvedTagIds = [];
+  const seenTagIds = new Set();
+
+  if (Array.isArray(profileInput.tagIds) && profileInput.tagIds.length > 0) {
+    const unknownTagIds = [];
+
+    for (const rawId of profileInput.tagIds) {
+      const tagId = Number(rawId);
+
+      if (!tagsById.has(tagId)) {
+        unknownTagIds.push(tagId);
+        continue;
+      }
+
+      if (!seenTagIds.has(tagId)) {
+        seenTagIds.add(tagId);
+        resolvedTagIds.push(tagId);
+      }
+    }
+
+    if (unknownTagIds.length > 0) {
+      return {
+        valid: false,
+        error: `Unknown profile tag id(s): ${unknownTagIds.join(", ")}.`,
+      };
+    }
+  } else {
+    const unknownTagNames = [];
+
+    for (const tagName of profileInput.tags ?? []) {
+      const normalizedName = String(tagName).trim().toLocaleLowerCase();
+      const tagId = tagIdByName.get(normalizedName);
+
+      if (!tagId) {
+        unknownTagNames.push(String(tagName));
+        continue;
+      }
+
+      if (!seenTagIds.has(tagId)) {
+        seenTagIds.add(tagId);
+        resolvedTagIds.push(tagId);
+      }
+    }
+
+    if (unknownTagNames.length > 0) {
+      return {
+        valid: false,
+        error: `Unknown profile tag name(s): ${unknownTagNames.join(", ")}.`,
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    value: {
+      ...profileInput,
+      tagIds: resolvedTagIds,
+      tags: resolvedTagIds
+        .map((tagId) => tagsById.get(tagId))
+        .filter((tagName) => typeof tagName === "string"),
+    },
+  };
+}
+
 export function createNewsScraperApi({
   repository,
   repositoryByEnvironment,
@@ -688,8 +806,18 @@ export function createNewsScraperApi({
         return;
       }
 
-      const createdProfile = await resolveRepository(request).createProfile(
+      const tagSelectionValidation = await validateProfileTagSelection(
+        resolveRepository(request),
         validationResult.value,
+      );
+
+      if (!tagSelectionValidation.valid) {
+        sendError(request, response, 400, tagSelectionValidation.error);
+        return;
+      }
+
+      const createdProfile = await resolveRepository(request).createProfile(
+        tagSelectionValidation.value,
       );
       response.status(201).json(createdProfile);
     } catch (error) {
@@ -744,9 +872,19 @@ export function createNewsScraperApi({
         return;
       }
 
+      const tagSelectionValidation = await validateProfileTagSelection(
+        resolveRepository(request),
+        validationResult.value,
+      );
+
+      if (!tagSelectionValidation.valid) {
+        sendError(request, response, 400, tagSelectionValidation.error);
+        return;
+      }
+
       const updatedProfile = await resolveRepository(request).updateProfile(
         profileId,
-        validationResult.value,
+        tagSelectionValidation.value,
       );
 
       if (updatedProfile === null) {
@@ -791,6 +929,15 @@ export function createNewsScraperApi({
     try {
       const sources = await resolveRepository(request).listSources();
       response.json(sources);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/tags", async (request, response, next) => {
+    try {
+      const tags = await resolveRepository(request).listTags();
+      response.json(tags);
     } catch (error) {
       next(error);
     }
@@ -879,20 +1026,33 @@ export function createNewsScraperApi({
   });
 
   app.get("/api/news", async (request, response, next) => {
-    const sourceId = parseProfileId(request.query.sourceId);
+    const sourceId = parseProfileId(
+      request.query.sourceId ?? request.query.profileId,
+    );
+    const tagIds = parseTagIds(request.query.tagIds);
 
     if (sourceId === null) {
       sendError(
         request,
         response,
         400,
-        "sourceId query parameter must be a positive integer.",
+        "profileId query parameter must be a positive integer.",
+      );
+      return;
+    }
+
+    if (tagIds === null) {
+      sendError(
+        request,
+        response,
+        400,
+        "tagIds query parameter must be a comma-separated list of positive integers.",
       );
       return;
     }
 
     try {
-      const news = await resolveRepository(request).listNews(sourceId);
+      const news = await resolveRepository(request).listNews(sourceId, tagIds);
       response.json(news);
     } catch (error) {
       next(error);
@@ -901,7 +1061,9 @@ export function createNewsScraperApi({
 
   app.put("/api/news/:id/favorite", async (request, response, next) => {
     const newsId = parseProfileId(request.params.id);
-    const sourceId = parseProfileId(request.body?.sourceId);
+    const sourceId = parseProfileId(
+      request.body?.sourceId ?? request.body?.profileId,
+    );
     const favorite = parseBoolean(request.body?.favorite);
 
     if (newsId === null) {
@@ -914,7 +1076,7 @@ export function createNewsScraperApi({
         request,
         response,
         400,
-        "sourceId in request body must be a positive integer.",
+        "profileId in request body must be a positive integer.",
       );
       return;
     }

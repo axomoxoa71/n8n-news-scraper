@@ -4,6 +4,7 @@ import type {
   SavedErrorItem,
   SavedProfile,
   SavedNewsItem,
+  SavedTag,
   NotificationChannel,
   NotificationChannelInput,
   Source,
@@ -318,6 +319,15 @@ export async function listSources(actionTraceId?: string): Promise<Source[]> {
   >;
 }
 
+export async function listTags(actionTraceId?: string): Promise<SavedTag[]> {
+  const route = buildApiRoute("/tags");
+  const { response, traceId, method } = await apiFetch(route, {}, actionTraceId);
+
+  return handleApiResponse(response, { traceId, route, method }) as Promise<
+    SavedTag[]
+  >;
+}
+
 export async function createSource(
   source: SourceInput,
   actionTraceId?: string,
@@ -385,9 +395,16 @@ export async function deleteSource(
 
 export async function listNews(
   sourceId: number,
+  tagIds: number[] = [],
   actionTraceId?: string,
 ): Promise<SavedNewsItem[]> {
-  const route = buildApiRoute(`/news?sourceId=${sourceId}`);
+  const params = new URLSearchParams({ sourceId: String(sourceId) });
+
+  if (tagIds.length > 0) {
+    params.set("tagIds", tagIds.join(","));
+  }
+
+  const route = buildApiRoute(`/news?${params.toString()}`);
   const { response, traceId, method } = await apiFetch(
     route,
     {},

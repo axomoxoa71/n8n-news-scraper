@@ -49,12 +49,18 @@ export function validateProfileInput(input) {
     return { valid: false, error: "Profile tags must be an array." };
   }
 
+  if (input.tagIds !== undefined && !Array.isArray(input.tagIds)) {
+    return { valid: false, error: "Profile tag ids must be an array." };
+  }
+
   if (input.roles !== undefined && !Array.isArray(input.roles)) {
     return { valid: false, error: "Profile roles must be an array." };
   }
 
   const tags = [];
   const normalizedTagNames = new Set();
+  const tagIds = [];
+  const seenTagIds = new Set();
   const roles = [];
   const normalizedRoleNames = new Set();
 
@@ -76,6 +82,24 @@ export function validateProfileInput(input) {
 
     normalizedTagNames.add(normalizedTagKey);
     tags.push(tagName);
+  }
+
+  for (const entry of input.tagIds ?? []) {
+    const tagId = Number(entry);
+
+    if (!Number.isInteger(tagId) || tagId <= 0) {
+      return {
+        valid: false,
+        error: "Each profile tag id must be a positive integer.",
+      };
+    }
+
+    if (seenTagIds.has(tagId)) {
+      continue;
+    }
+
+    seenTagIds.add(tagId);
+    tagIds.push(tagId);
   }
 
   for (const entry of input.roles ?? []) {
@@ -162,6 +186,7 @@ export function validateProfileInput(input) {
       sourceId,
       useCustomSources: true,
       tags,
+      tagIds,
       roles,
       notificationProfileId,
       notificationChannelIds,

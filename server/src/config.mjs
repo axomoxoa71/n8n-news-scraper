@@ -126,7 +126,7 @@ export function loadServerConfig(env = process.env, options = {}) {
   );
   const profileStore =
     env.PROFILE_STORE ?? (hasDatabaseConfig ? "postgres" : "memory");
-  const initialize = toBoolean(env.INITIALIZE ?? env.initialize, true);
+  const initialize = toBoolean(env.INITIALIZE ?? env.initialize, false);
   const productionWebhook = resolveEnvironmentWebhookConfig(
     env,
     environmentScopedEnv.production,

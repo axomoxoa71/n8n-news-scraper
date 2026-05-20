@@ -69,12 +69,13 @@ npm run dev
 
 ## Database Initialization
 
-When `PROFILE_STORE=postgres`, the API initializes the schema automatically during startup.
+When `PROFILE_STORE=postgres`, startup is non-destructive by default and does not reinitialize schema unless explicitly enabled.
 
 That startup initialization now also backfills `profiles_t.json` for older profiles and `notification_channels_t.json` for older channel rows that predate JSON snapshot columns.
 
 - The startup path in `server/src/index.mjs` calls `repository.initialize()` before the server begins listening.
-- For the Postgres repository, `repository.initialize()` loads and executes `server/sql/init.sql`.
+- Postgres initialization runs only when `INITIALIZE=true` is set.
+- Initialization is non-destructive and does not execute `cleanup.sql`.
 - The SQL file uses `CREATE TABLE IF NOT EXISTS`, so missing tables are created automatically.
 - This means you do not need to run a migration command just to create the application tables.
 
@@ -127,6 +128,12 @@ npm run seed:profiles
 
 ```bash
 npm run seed:sql
+```
+
+If you need to explicitly drop all tables, use:
+
+```bash
+npm run db:drop:all
 ```
 
 For details and customization, see [server/sql/SEED.md](../../server/sql/SEED.md).

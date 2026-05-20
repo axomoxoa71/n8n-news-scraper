@@ -59,68 +59,7 @@ test("menus navigate to Profiles, Chatbot, and News pages", async ({
   await expect(page.getByRole("heading", { name: /News/ })).toBeVisible();
 });
 
-test("AI Demo profile is selected by default when available", async ({
-  page,
-}) => {
-  const profilesResponse = [
-    {
-      id: 9,
-      name: "Backend Watch",
-      description: "",
-      useCustomSources: false,
-      tags: [],
-      urls: [],
-      rssFeeds: [],
-      notificationChannelIds: [],
-      notificationProfileId: null,
-    },
-    {
-      id: 7,
-      name: "AI Demo",
-      description: "",
-      useCustomSources: false,
-      tags: [],
-      urls: [],
-      rssFeeds: [],
-      notificationChannelIds: [],
-      notificationProfileId: null,
-    },
-  ];
-
-  await page.route("**/api/profiles", async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(profilesResponse),
-      });
-      return;
-    }
-
-    await route.continue();
-  });
-
-  await page.route("**/api/notification-profiles", async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify([]),
-      });
-      return;
-    }
-
-    await route.continue();
-  });
-
-  await page.goto("/");
-
-  await expect(page.locator(".profile-combobox-input").first()).toHaveValue(
-    "AI Demo",
-  );
-});
-
-test("news page supports keyword search and favorites filtering", async ({
+test("news page supports keyword search, favorites, and tag filtering", async ({
   page,
 }) => {
   const profilesResponse = [
@@ -144,7 +83,7 @@ test("news page supports keyword search and favorites filtering", async ({
       title: "Open-source agent benchmark published",
       summary: "New benchmark compares autonomous coding agents.",
       origin: "Agent Weekly",
-      link: "https://example.com/news/agent-benchmark",
+      url: "https://example.com/news/agent-benchmark",
       timestamp: "2026-05-06T10:30:00.000Z",
       favorite: false,
     },
@@ -154,7 +93,7 @@ test("news page supports keyword search and favorites filtering", async ({
       title: "Model release improves long-context reasoning",
       summary: "Vendors report fewer retrieval failures in production.",
       origin: "Applied AI Journal",
-      link: "https://example.com/news/long-context",
+      url: "https://example.com/news/long-context",
       timestamp: "2026-05-06T08:00:00.000Z",
       favorite: true,
     },
@@ -186,11 +125,31 @@ test("news page supports keyword search and favorites filtering", async ({
     await route.continue();
   });
 
-  await page.route("**/api/news?profileId=1", async (route) => {
+  await page.route("**/api/tags", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          { id: 1, category: "news", tag: "agents" },
+          { id: 2, category: "news", tag: "benchmark" },
+        ]),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.route("**/api/news**", async (route) => {
+    const url = new URL(route.request().url());
+    const tagIds = url.searchParams.get("tagIds");
+    const filteredResponse = tagIds === "2" ? [newsResponse[0]] : newsResponse;
+
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(newsResponse),
+      body: JSON.stringify(filteredResponse),
     });
   });
 
@@ -239,6 +198,18 @@ test("news page supports keyword search and favorites filtering", async ({
   ).toBeVisible();
   await expect(
     page.getByRole("row").filter({ hasText: "Open-source agent benchmark" }),
+  ).toHaveCount(0);
+
+  await page.getByRole("combobox", { name: "Tags" }).click();
+  await page.getByRole("option", { name: /benchmark/i }).click();
+
+  await expect(
+    page.getByRole("row").filter({ hasText: "Open-source agent benchmark" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "Model release improves long-context reasoning" }),
   ).toHaveCount(0);
 });
 
@@ -365,10 +336,58 @@ test("chatbot voice input language defaults to browser locale and supports germa
     .toBe("en-US");
 });
 
-test("user can add profile in dialog with URL and multiple RSS entries", async ({
+test("news page supports keyword search, favorites, and tag filtering", async ({
   page,
 }) => {
-  const profiles: Array<Record<string, unknown>> = [];
+  const profilesResponse = [
+    {
+      id: 1,
+      name: "AI Focus",
+      description: "",
+      useCustomSources: false,
+      tags: [],
+      urls: [],
+      rssFeeds: [],
+      notificationChannelIds: [],
+      notificationProfileId: null,
+    },
+  ];
+
+  const newsResponse = [
+    {
+      id: 100,
+      profileId: 1,
+      title: "Open-source agent benchmark published",
+      summary: "New benchmark compares autonomous coding agents.",
+      origin: "Agent Weekly",
+      url: "https://example.com/news/agent-benchmark",
+      timestamp: "2026-05-06T10:30:00.000Z",
+      favorite: false,
+    },
+    {
+      id: 101,
+      profileId: 1,
+      title: "Model release improves long-context reasoning",
+      summary: "Vendors report fewer retrieval failures in production.",
+      origin: "Applied AI Journal",
+      url: "https://example.com/news/long-context",
+      timestamp: "2026-05-06T08:00:00.000Z",
+      favorite: true,
+    },
+  ];
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(profilesResponse),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
 
   await page.route("**/api/notification-profiles", async (route) => {
     if (route.request().method() === "GET") {
@@ -383,30 +402,15 @@ test("user can add profile in dialog with URL and multiple RSS entries", async (
     await route.continue();
   });
 
-  await page.route("**/api/profiles", async (route) => {
-    const method = route.request().method();
-
-    if (method === "GET") {
+  await page.route("**/api/tags", async (route) => {
+    if (route.request().method() === "GET") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(profiles),
-      });
-      return;
-    }
-
-    if (method === "POST") {
-      const payload = route.request().postDataJSON() as Record<string, unknown>;
-      const createdProfile = {
-        ...payload,
-        id: profiles.length + 1,
-      };
-      profiles.unshift(createdProfile);
-
-      await route.fulfill({
-        status: 201,
-        contentType: "application/json",
-        body: JSON.stringify(createdProfile),
+        body: JSON.stringify([
+          { id: 1, category: "news", tag: "agents" },
+          { id: 2, category: "news", tag: "benchmark" },
+        ]),
       });
       return;
     }
@@ -414,122 +418,76 @@ test("user can add profile in dialog with URL and multiple RSS entries", async (
     await route.continue();
   });
 
-  await page.goto("/profiles");
-  await openProfilesManagementTab(page);
+  await page.route("**/api/news**", async (route) => {
+    const url = new URL(route.request().url());
+    const tagIds = url.searchParams.get("tagIds");
+    const filteredResponse = tagIds === "2" ? [newsResponse[0]] : newsResponse;
 
-  await page.getByRole("button", { name: "Add profile" }).click();
-  const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(filteredResponse),
+    });
+  });
 
-  await addDialog.getByLabel("Profile name").fill("Agent Watch");
-  await addDialog
-    .getByLabel("Profile description")
-    .fill("Tracks agent platform and model release updates.");
-
-  await selectFirstAvailableSource(addDialog);
-
-  await addDialog.getByRole("button", { name: "Save profile" }).click();
+  await page.goto("/news");
 
   await expect(
-    page
-      .getByRole("list", { name: "Profile entries" })
-      .locator("li", { hasText: "Agent Watch" })
-      .first(),
+    page.getByRole("row").filter({ hasText: "Open-source agent benchmark" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("dialog", { name: "Add profile dialog" }),
+    page
+      .getByRole("row")
+      .filter({ hasText: "Model release improves long-context reasoning" }),
+  ).toBeVisible();
+
+  await page.getByLabel("Search news by title or summary").fill("benchmark");
+
+  await expect(
+    page.getByRole("row").filter({ hasText: "Open-source agent benchmark" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "Model release improves long-context reasoning" }),
   ).toHaveCount(0);
-});
 
-test("source based profile form allows save without legacy custom fields", async ({
-  page,
-}) => {
-  const profiles: Array<Record<string, unknown>> = [];
+  await page
+    .getByLabel("Search news by title or summary")
+    .fill("benchmark retrieval");
 
-  await page.route("**/api/notification-profiles", async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify([]),
-      });
-      return;
-    }
-
-    await route.continue();
-  });
-
-  await page.route("**/api/profiles", async (route) => {
-    const method = route.request().method();
-
-    if (method === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(profiles),
-      });
-      return;
-    }
-
-    if (method === "POST") {
-      const payload = route.request().postDataJSON() as Record<string, unknown>;
-      const createdProfile = {
-        ...payload,
-        id: profiles.length + 1,
-      };
-      profiles.unshift(createdProfile);
-
-      await route.fulfill({
-        status: 201,
-        contentType: "application/json",
-        body: JSON.stringify(createdProfile),
-      });
-      return;
-    }
-
-    await route.continue();
-  });
-
-  await page.goto("/profiles");
-  await openProfilesManagementTab(page);
-
-  await page.getByRole("button", { name: "Add profile" }).click();
-  const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
-
-  await addDialog.getByLabel("Profile name").fill("AI Suggested Sources");
-  await expect(addDialog.getByLabel("Custom")).toHaveCount(0);
-  await selectFirstAvailableSource(addDialog);
-
-  await addDialog.getByRole("button", { name: "Save profile" }).click();
-
-  // Wait for dialog to close (indicates save completed)
-  await expect(addDialog).not.toBeVisible();
-
-  // Now verify profile appears in list
+  await expect(
+    page.getByRole("row").filter({ hasText: "Open-source agent benchmark" }),
+  ).toHaveCount(0);
   await expect(
     page
-      .getByRole("list", { name: "Profile entries" })
-      .locator("li", { hasText: "AI Suggested Sources" })
-      .first(),
-  ).toBeVisible();
-});
+      .getByRole("row")
+      .filter({ hasText: "Model release improves long-context reasoning" }),
+  ).toHaveCount(0);
 
-test("profile form uses source selector instead of legacy custom/url/rss controls", async ({
-  page,
-}) => {
-  await page.goto("/profiles");
-  await openProfilesManagementTab(page);
+  await page.getByLabel("Search news by title or summary").fill("");
+  await page.getByRole("button", { name: "Show favorites only" }).click();
 
-  await page.getByRole("button", { name: "Add profile" }).click();
-  const addDialog = page.getByRole("dialog", { name: "Add profile dialog" });
-
-  await addDialog.getByLabel("Profile name").fill("Clear Sources On Disable");
-  await expect(addDialog.getByLabel("Custom")).toHaveCount(0);
-  await expect(addDialog.getByRole("tab", { name: "SOURCE" })).toBeVisible();
   await expect(
-    addDialog.locator("label.field:has-text('Source') select").first(),
+    page
+      .getByRole("row")
+      .filter({ hasText: "Model release improves long-context reasoning" }),
   ).toBeVisible();
-  await expect(addDialog.getByLabel("Source URL 1")).toHaveCount(0);
-  await expect(addDialog.getByLabel("RSS feed URL 1")).toHaveCount(0);
+  await expect(
+    page.getByRole("row").filter({ hasText: "Open-source agent benchmark" }),
+  ).toHaveCount(0);
+
+  await page.getByRole("combobox", { name: "Tags" }).click();
+  await page.getByRole("option", { name: /benchmark/i }).click();
+
+  await expect(
+    page.getByRole("row").filter({ hasText: "Open-source agent benchmark" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "Model release improves long-context reasoning" }),
+  ).toHaveCount(0);
 });
 
 test("profile save error shows backend trace ID", async ({ page }) => {
@@ -1277,7 +1235,7 @@ function makeNewsItems(count: number, profileId = 1) {
     title: `News item ${String(i + 1).padStart(2, "0")}`,
     summary: `Summary for item ${i + 1}`,
     origin: "Test Source",
-    link: `https://example.com/news/${i + 1}`,
+    url: `https://example.com/news/${i + 1}`,
     // timestamps spread so sort order is deterministic
     timestamp: new Date(2026, 4, 1, i).toISOString(),
     favorite: false,

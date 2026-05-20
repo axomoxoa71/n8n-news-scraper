@@ -5,11 +5,6 @@
 -- This file combines them in the correct order for convenience.
 --
 -- ============================================================
--- Cleanup – drop existing objects first
--- ============================================================
-\i server/sql/cleanup.sql
-
--- ============================================================
 -- Shared functions
 -- ============================================================
 \i server/sql/ddl/00_functions.sql
@@ -29,13 +24,20 @@
 \i server/sql/ddl/error_t.sql
 \i server/sql/ddl/news_t.sql
 \i server/sql/ddl/news_tags_t.sql
+\i server/sql/ddl/tags_t.sql
 \i server/sql/ddl/notification_profiles_t.sql
 \i server/sql/ddl/notification_channels_t.sql
+\i server/sql/ddl/views.sql
 
 -- ============================================================
 -- Foreign keys
 -- ============================================================
 \i server/sql/fk/foreign_keys.sql
+
+-- ============================================================
+-- Initial reference data
+-- ============================================================
+\i server/sql/seed-tags.sql
 
 -- Note: Legacy inline DDL has been removed.
 -- Use the split files under server/sql/ddl and server/sql/fk as the single source of truth.

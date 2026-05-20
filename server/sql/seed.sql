@@ -1,24 +1,10 @@
--- Resets and seeds a strict local baseline.
+-- Appends a local baseline without clearing existing data.
 -- Includes a dedicated Error Test Profile for profile-switching UI tests.
 -- Usage: psql "$DATABASE_URL" -f server/sql/seed.sql
 
 BEGIN;
 
-TRUNCATE TABLE
-  notification_channels_t,
-  error_t,
-  news_tags_t,
-  news_t,
-  source_rss_feeds_t,
-  source_urls_t,
-  sources_t,
-  rss_feeds_t,
-  profile_roles_t,
-  profile_tags_t,
-  profile_urls_t,
-  profiles_t,
-  notification_profiles_t
-RESTART IDENTITY CASCADE;
+\i server/sql/seed-tags.sql
 
 -- 3 notification profiles
 INSERT INTO notification_profiles_t (name, description)
@@ -130,25 +116,31 @@ VALUES
   );
 
 -- profile tags (8 for profile 1, 3 each for profiles 2-4)
-INSERT INTO profile_tags_t (profile_id, position, tag_name)
-VALUES
-  (1, 0, 'llm'),
-  (1, 1, 'openai'),
-  (1, 2, 'claude'),
-  (1, 3, 'anthropic'),
-  (1, 4, 'meta'),
-  (1, 5, 'agentic AI'),
-  (1, 6, 'MCP'),
-  (1, 7, 'RAG'),
-  (2, 0, 'agents'),
-  (2, 1, 'orchestration'),
-  (2, 2, 'automation'),
-  (3, 0, 'releases'),
-  (3, 1, 'api'),
-  (3, 2, 'changelog'),
-  (4, 0, 'errors'),
-  (4, 1, 'switching'),
-  (4, 2, 'ui-test');
+WITH profile_tag_seed(profile_id, tag_name) AS (
+  VALUES
+    (1, 'llm'),
+    (1, 'openai'),
+    (1, 'claude'),
+    (1, 'anthropic'),
+    (1, 'meta'),
+    (1, 'agentic AI'),
+    (1, 'MCP'),
+    (1, 'RAG'),
+    (2, 'agents'),
+    (2, 'orchestration'),
+    (2, 'automation'),
+    (3, 'releases'),
+    (3, 'api'),
+    (3, 'changelog'),
+    (4, 'errors'),
+    (4, 'switching'),
+    (4, 'ui-test')
+)
+INSERT INTO profile_tags_t (profile_id, tags_id)
+SELECT seed.profile_id, tags.id
+FROM profile_tag_seed AS seed
+INNER JOIN tags_t AS tags
+  ON lower(tags.tag) = lower(seed.tag_name);
 
 -- profile roles (2 for profile 1, 3 each for profiles 2-4)
 INSERT INTO profile_roles_t (profile_id, position, role_name)
@@ -167,55 +159,28 @@ VALUES
   (4, 2, 'Platform Engineer');
 
 
--- 12 news rows (3 per profile)
+-- 9 news rows (3 each for sources 2-4; AI Demo source 1 intentionally empty)
 INSERT INTO news_t (
   news_id,
   source_id,
   title,
   summary,
   origin,
-  link,
+  url,
   published_ts,
   favorite
 )
 SELECT
-  encode(digest(seed_item.link || seed_item.title, 'sha256'), 'hex'),
+  encode(digest(seed_item.url || seed_item.title, 'sha256'), 'hex'),
   seed_item.source_id,
   seed_item.title,
   seed_item.summary,
   seed_item.origin,
-  seed_item.link,
+  seed_item.url,
   CURRENT_TIMESTAMP - seed_item.age_interval,
   seed_item.favorite
 FROM (
   VALUES
-    (
-      1,
-      'Open-source agent benchmark published',
-      'A new benchmark compares autonomous coding agents on reliability, cost, and latency.',
-      'Agent Weekly',
-      'https://example.com/news/agent-benchmark',
-      INTERVAL '15 minutes',
-      FALSE
-    ),
-    (
-      1,
-      'Foundation model vendor expands enterprise controls',
-      'New deployment controls add policy gating, audit trails, and regional rollout management.',
-      'Enterprise AI Brief',
-      'https://example.com/news/enterprise-controls',
-      INTERVAL '50 minutes',
-      TRUE
-    ),
-    (
-      1,
-      'Inference cost report shows efficiency gains',
-      'New benchmarking data highlights lower latency and lower token costs across production workloads.',
-      'Model Ops Daily',
-      'https://example.com/news/inference-cost-report',
-      INTERVAL '3 hours',
-      FALSE
-    ),
     (
       2,
       'Model release improves long-context reasoning',
@@ -297,7 +262,40 @@ FROM (
       INTERVAL '5 hours',
       FALSE
     )
-) AS seed_item(source_id, title, summary, origin, link, age_interval, favorite);
+) AS seed_item(source_id, title, summary, origin, url, age_interval, favorite);
+
+INSERT INTO news_tags_t (news_id, tags_id)
+WITH ordered_news AS (
+  SELECT
+    news_row.id,
+    news_row.url
+  FROM news_t AS news_row
+),
+ordered_tags AS (
+  SELECT
+    tag_row.id,
+    ROW_NUMBER() OVER (
+      ORDER BY lower(tag_row.category), lower(tag_row.tag), tag_row.id
+    ) - 1 AS tag_pos,
+    COUNT(*) OVER () AS tag_count
+  FROM tags_t AS tag_row
+  WHERE lower(tag_row.category) = 'news'
+)
+SELECT
+  news_row.id,
+  candidate_tag.id
+FROM ordered_news AS news_row
+JOIN LATERAL (
+  SELECT DISTINCT tag_choice.id, tag_choice.tag_pos
+  FROM ordered_tags AS tag_choice
+  WHERE tag_choice.tag_count > 0
+    AND tag_choice.tag_pos IN (
+      MOD(ABS(hashtext(news_row.url)), tag_choice.tag_count),
+      MOD(ABS(hashtext(news_row.url)) + 1, tag_choice.tag_count)
+    )
+  ORDER BY tag_choice.tag_pos
+  LIMIT 2
+) AS candidate_tag ON TRUE;
 
 -- 3 error rows for Error Test Profile source (profile-switching test baseline)
 INSERT INTO error_t (
@@ -423,7 +421,16 @@ SET json = jsonb_build_object(
   'useCustomSources', profile.use_custom_sources,
   'tags', COALESCE(
     (
-      SELECT jsonb_agg(tag_row.tag_name ORDER BY tag_row.position, tag_row.id)
+      SELECT jsonb_agg(tags.tag ORDER BY tag_row.position, tag_row.id)
+      FROM profile_tags_t AS tag_row
+      INNER JOIN tags_t AS tags ON tags.id = tag_row.tags_id
+      WHERE tag_row.profile_id = profile.id
+    ),
+    '[]'::jsonb
+  ),
+  'tagIds', COALESCE(
+    (
+      SELECT jsonb_agg(tag_row.tags_id ORDER BY tag_row.position, tag_row.id)
       FROM profile_tags_t AS tag_row
       WHERE tag_row.profile_id = profile.id
     ),

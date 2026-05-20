@@ -64,8 +64,8 @@ function slugifyProfileName(profileName) {
     .replace(/^-+|-+$/g, "");
 }
 
-function createNewsHash(link, title) {
-  return createHash("sha256").update(`${link}${title}`, "utf8").digest("hex");
+function createNewsHash(url, title) {
+  return createHash("sha256").update(`${url}${title}`, "utf8").digest("hex");
 }
 
 function createDefaultSeedNews(profileName) {
@@ -85,7 +85,7 @@ function createDefaultSeedNews(profileName) {
       title: firstTitle,
       summary: `Seeded sample news item 1 for ${profileName}.`,
       origin: "Seed Runner",
-      link: firstLink,
+      url: firstLink,
       timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
       favorite: false,
     },
@@ -94,7 +94,7 @@ function createDefaultSeedNews(profileName) {
       title: secondTitle,
       summary: `Seeded sample news item 2 for ${profileName}.`,
       origin: "Seed Runner",
-      link: secondLink,
+      url: secondLink,
       timestamp: new Date(now - 60 * 60 * 1000).toISOString(),
       favorite: true,
     },
@@ -103,7 +103,7 @@ function createDefaultSeedNews(profileName) {
       title: thirdTitle,
       summary: `Seeded sample news item 3 for ${profileName}.`,
       origin: "Seed Runner",
-      link: thirdLink,
+      url: thirdLink,
       timestamp: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
       favorite: false,
     },

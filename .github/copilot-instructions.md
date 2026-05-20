@@ -56,7 +56,6 @@
 - System Prompt: You are an AI news assistant who focuses on news related to the tags and for the roles profided in this profile. You provide concise and informative summaries of the latest developments in the AI field, tailored to the interests of the users linked to this profile.
 - Tags: llm, openai, claude,anthropic, meta, agentic AI, MCP, RAG
 - Roles: Solution Architect, Software Engineer
-  xml,
 
 #### Error Test Profile
 
@@ -75,6 +74,7 @@
 - Url: https://ai.meta.com/blog/, https://www.anthropic.com/news, https://claude.com/blog
 - RSS: https://openai.com/news/rss.xml, https://huggingface.co/blog/feed.xml,https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml
 - Description: A source for AI news demonstration.
+- No news should be generated for this profile during seeding, but the source should be set up to allow testing of news scraping and processing functionality.
 
 # Database Conventions
 

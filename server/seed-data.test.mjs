@@ -200,6 +200,18 @@ test("AI Demo notification profile exists with configured email channel", async 
   ]);
 });
 
+test("tags endpoint returns seeded tags", async () => {
+  const tags = await fetchJson(`${apiBaseUrl}/api/tags`);
+  assert.ok(tags.length > 0, "Expected at least one seeded tag");
+
+  for (const requiredTag of ["agents", "benchmark", "llm", "errors"]) {
+    assert.ok(
+      tags.some((entry) => entry.tag === requiredTag),
+      `Expected seeded tag "${requiredTag}" to exist`,
+    );
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Per-profile: URLs, RSS, tags, roles counts
 // ---------------------------------------------------------------------------
@@ -225,6 +237,27 @@ for (const profileName of [
       (profile.urls ?? []).length,
       expectedUrlCountByProfile[profileName],
       `"${profileName}" expected ${expectedUrlCountByProfile[profileName]} URLs, got ${(profile.urls ?? []).length}`,
+    );
+  });
+
+  test("news endpoint supports tag filtering", async () => {
+    const allNews = await fetchJson(`${apiBaseUrl}/api/news?profileId=1`);
+    const tags = await fetchJson(`${apiBaseUrl}/api/tags`);
+    const benchmarkTag = tags.find((entry) => entry.tag === "benchmark");
+
+    assert.ok(benchmarkTag, 'Seeded tag "benchmark" not found');
+
+    const filteredNews = await fetchJson(
+      `${apiBaseUrl}/api/news?profileId=1&tagIds=${benchmarkTag.id}`,
+    );
+
+    assert.ok(
+      filteredNews.length > 0,
+      "Expected at least one news item for benchmark tag filtering",
+    );
+    assert.ok(
+      filteredNews.length <= allNews.length,
+      "Filtered news should not exceed unfiltered news",
     );
   });
 
@@ -279,8 +312,8 @@ for (const profileName of [
       );
       assert.equal(
         item.newsId,
-        sha256Hex(`${item.link}${item.title}`),
-        `"${profileName}" newsId does not match SHA-256(link + title) for "${item.title}"`,
+        sha256Hex(`${item.url}${item.title}`),
+        `"${profileName}" newsId does not match SHA-256(url + title) for "${item.title}"`,
       );
     }
   });
