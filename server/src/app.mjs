@@ -718,6 +718,7 @@ export function createNewsScraperApi({
   }
 
   const app = express();
+  app.set("etag", false);
   app.locals.scrapWebhookUrl = scrapWebhookUrl;
   app.locals.scrapWebhookBasicAuthUser = scrapWebhookBasicAuthUser;
   app.locals.scrapWebhookBasicAuthPassword = scrapWebhookBasicAuthPassword;
@@ -740,9 +741,12 @@ export function createNewsScraperApi({
     response.on("finish", () => {
       const durationMs =
         Number(process.hrtime.bigint() - startTime) / 1_000_000;
+      const statusCode = response.statusCode;
+      const level =
+        statusCode >= 400 ? "error" : statusCode >= 300 ? "warn" : "info";
 
       logEvent({
-        level: "info",
+        level,
         layer: "api",
         message: "http_request_completed",
         traceId: traceContext.traceId,
@@ -750,7 +754,7 @@ export function createNewsScraperApi({
         parent_span_id: traceContext.parentSpanId,
         http_method: request.method,
         http_route: request.originalUrl,
-        http_status_code: response.statusCode,
+        http_status_code: statusCode,
         duration_ms: Number(durationMs.toFixed(3)),
       });
     });
@@ -1303,7 +1307,9 @@ export function createNewsScraperApi({
       return;
     }
 
-    const profileId = parseProfileId(request.body?.profileId);
+    const profileId = parseProfileId(
+      request.body?.id ?? request.body?.profileId,
+    );
 
     if (profileId === null) {
       sendError(
@@ -1317,7 +1323,8 @@ export function createNewsScraperApi({
 
     try {
       const traceContext = getTraceContext(request);
-      const profiles = await resolveRepository(request).listProfiles();
+      const repositoryInstance = resolveRepository(request);
+      const profiles = await repositoryInstance.listProfiles();
       const selectedProfile =
         profiles.find((profile) => profile.id === profileId) ?? null;
 
@@ -1326,39 +1333,43 @@ export function createNewsScraperApi({
         return;
       }
 
-      const informationChannelId =
-        selectedProfile.notificationChannelIds?.[0] ??
-        selectedProfile.notificationProfileId ??
-        null;
+      await repositoryInstance.clearErrors(profileId);
 
-      if (informationChannelId === null) {
-        sendError(
-          request,
-          response,
-          400,
-          "Selected profile is not linked to an information channel.",
-        );
-        return;
+      const selectedNotificationChannelIds =
+        Array.isArray(selectedProfile.notificationChannelIds) &&
+        selectedProfile.notificationChannelIds.length > 0
+          ? selectedProfile.notificationChannelIds
+          : Number.isInteger(selectedProfile.notificationProfileId) &&
+              selectedProfile.notificationProfileId > 0
+            ? [selectedProfile.notificationProfileId]
+            : [];
+
+      let selectedInformationChannel = null;
+      if (
+        selectedNotificationChannelIds.length > 0 &&
+        typeof repositoryInstance.listNotificationProfiles === "function"
+      ) {
+        const notificationProfiles =
+          await repositoryInstance.listNotificationProfiles();
+        selectedInformationChannel =
+          notificationProfiles.find(
+            (channel) => channel.id === selectedNotificationChannelIds[0],
+          ) ?? null;
       }
-
-      const informationChannels =
-        await resolveRepository(request).listNotificationProfiles();
-      const selectedInformationChannel =
-        informationChannels.find(
-          (channel) => channel.id === informationChannelId,
-        ) ?? null;
-
-      if (!selectedInformationChannel) {
-        sendError(request, response, 404, "Information channel not found.");
-        return;
-      }
-
-      await resolveRepository(request).clearErrors(profileId);
 
       const webhookPayload = {
+        id: selectedProfile.id,
+        name: selectedProfile.name,
         scrape: {
           profile: selectedProfile,
-          informationChannel: selectedInformationChannel,
+          informationChannel: selectedInformationChannel
+            ? {
+                id: selectedInformationChannel.id,
+                name: selectedInformationChannel.name,
+                description: selectedInformationChannel.description,
+                channels: selectedInformationChannel.channels,
+              }
+            : null,
         },
       };
 
@@ -1853,7 +1864,7 @@ export function createNewsScraperApi({
       }
 
       logEvent({
-        level: "info",
+        level: workflowResponse.status >= 400 ? "error" : workflowResponse.status >= 300 ? "warn" : "info",
         layer: "webhook",
         message: "chatbot_webhook_response_status",
         traceId: traceContext.traceId,
@@ -1992,7 +2003,7 @@ export function createNewsScraperApi({
             responseBody.httpStatus >= 400));
 
       logEvent({
-        level: "info",
+        level: isErrorResponse ? "error" : "info",
         layer: "webhook",
         message: "chatbot_dispatch_response_extracted",
         traceId: traceContext.traceId,

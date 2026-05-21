@@ -154,14 +154,16 @@ async function apiFetch(
       headers,
     });
 
+    const status = response.status;
+    const level = status >= 400 ? "error" : status >= 300 ? "warn" : "info";
     logWebEvent({
-      level: "info",
+      level,
       layer: "web",
       message: "http_request_completed",
       traceId,
       http_method: method,
       http_route: route,
-      http_status_code: response.status,
+      http_status_code: status,
       duration_ms: Number((performance.now() - startedAt).toFixed(3)),
     });
 

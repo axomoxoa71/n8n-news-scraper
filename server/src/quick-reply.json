@@ -1,14 +1,23 @@
 [
     {
-        "name": "Top 10 News",
-        "prompt": "Provide the top 10 news for selected profile from today, including a title,summary, url, and published date for each story. Show it as markdown table."
+        "name": "Top 10 News (Today)",
+        "prompt": "Provide the top 10 news for selected profile from today, including a title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT any only provide from today and not older"
     },
+   {
+        "name": "Top 10 News (Weekly)",
+        "prompt": "Provide the top 10 news for selected profile from last week, including a title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT any only provide last 7 days and not older"
+    },
+
     {
         "name": "Generate Tag Heat Map",
         "prompt": "Generate a heat map chart showing the frequency of different tags in the news articles related to this profile over the past week. Use the tool **query_news** to retrieve the necessary data."
     },
     {
-        "name": "Top 10 Negative News",
-        "prompt": "Provide the top 10 negative news for selected profile from today, including a title,summary, url, and published date for each story. Show it as markdown table."
+        "name": "Top 10 Negative News(Today)",
+        "prompt": "Provide the top 10 negative news for selected profile from today, including a title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT any only provide from today and not older"
+    },
+    {
+        "name": "Top 10 Negative News(Weekly)",
+        "prompt": "Provide the top 10 negative news for selected profile for last week, including a title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT any only provide last 7 days and not older"
     }
 ]

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -30,6 +30,7 @@ import {
   listNotificationChannels,
   createNotificationChannel,
   updateNotificationChannel,
+  triggerScrapeWorkflow,
   triggerSourceScrapeWorkflow,
   listErrors,
   listExternalReferenceIds,
@@ -290,11 +291,11 @@ function NotificationChannelMultiSelect({
           </span>
         </div>
 
-        {selectedTags.length > 0 ? (
+        {selectedChannels.length > 0 ? (
           <ul className="news-tag-selected-list" aria-label="Selected tags">
-            {selectedTags.map((tag) => (
-              <li key={tag.id} className="news-tag-selected-item">
-                {tag.tag}
+            {selectedChannels.map((channel) => (
+              <li key={channel.id} className="news-tag-selected-item">
+                {channel.name}
               </li>
             ))}
           </ul>
@@ -364,43 +365,57 @@ function NotificationChannelMultiSelect({
   );
 }
 
-type TagMultiSelectProps = {
-  tags: SavedTag[];
-  selectedIds: number[];
-  onChange: (ids: number[]) => void;
+type MultiSelectOption = {
+  key: string;
+  label: string;
+};
+
+type SearchableMultiSelectComboboxProps = {
+  idPrefix: string;
+  label: string;
+  placeholder: string;
+  options: MultiSelectOption[];
+  selectedKeys: string[];
+  onToggle: (key: string) => void;
+  selectedDisplayMode?: "names" | "count";
   disabled?: boolean;
 };
 
-function TagMultiSelect({
-  tags,
-  selectedIds,
-  onChange,
+function SearchableMultiSelectCombobox({
+  idPrefix,
+  label,
+  placeholder,
+  options,
+  selectedKeys,
+  onToggle,
+  selectedDisplayMode = "names",
   disabled = false,
-}: TagMultiSelectProps) {
+}: SearchableMultiSelectComboboxProps) {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const controlRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [listPosition, setListPosition] = useState({
     left: 0,
     top: 0,
     width: 220,
   });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const controlRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase();
-    if (!q) {
-      return tags;
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    if (!normalizedQuery) {
+      return options;
     }
 
-    return tags.filter((tag) => {
-      const label = `${tag.category} ${tag.tag}`.toLocaleLowerCase();
-      return label.includes(q);
-    });
-  }, [tags, query]);
+    return options.filter((option) =>
+      option.label.toLocaleLowerCase().includes(normalizedQuery),
+    );
+  }, [options, query]);
+
+  const selectedSet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
 
   useEffect(() => {
     if (isOpen && controlRef.current) {
@@ -429,26 +444,14 @@ function TagMultiSelect({
   }, []);
 
   function openDropdown() {
+    if (disabled) {
+      return;
+    }
+
     setQuery("");
     setActiveIndex(-1);
     setIsOpen(true);
     setTimeout(() => inputRef.current?.select(), 0);
-  }
-
-  const normalizedSelectedIds = useMemo(
-    () =>
-      [...new Set(selectedIds.map((id) => Number(id)))].filter((id) =>
-        Number.isInteger(id),
-      ),
-    [selectedIds],
-  );
-
-  function toggleTag(tagId: number) {
-    const isSelected = normalizedSelectedIds.includes(tagId);
-    const nextIds = isSelected
-      ? normalizedSelectedIds.filter((id) => id !== tagId)
-      : [...normalizedSelectedIds, tagId];
-    onChange(nextIds);
   }
 
   function handleInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -459,14 +462,14 @@ function TagMultiSelect({
       listRef.current?.children[next]?.scrollIntoView({ block: "nearest" });
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      const prev = Math.max(activeIndex - 1, 0);
-      setActiveIndex(prev);
-      listRef.current?.children[prev]?.scrollIntoView({ block: "nearest" });
+      const previous = Math.max(activeIndex - 1, 0);
+      setActiveIndex(previous);
+      listRef.current?.children[previous]?.scrollIntoView({ block: "nearest" });
     } else if (event.key === "Enter") {
       event.preventDefault();
       const target = activeIndex >= 0 ? filtered[activeIndex] : null;
       if (target) {
-        toggleTag(target.id);
+        onToggle(target.key);
       }
     } else if (event.key === "Escape") {
       setIsOpen(false);
@@ -474,33 +477,28 @@ function TagMultiSelect({
     }
   }
 
-  const selectedTags = normalizedSelectedIds
-    .map((id) => tags.find((tag) => tag.id === id))
-    .filter((tag): tag is SavedTag => Boolean(tag));
-
+  const selectedLabels = options
+    .filter((option) => selectedSet.has(option.key))
+    .map((option) => option.label);
   const maxVisibleNames = 3;
-  const visibleNames = selectedTags
-    .slice(0, maxVisibleNames)
-    .map((tag) => tag.tag);
-  const hiddenCount = selectedTags.length - visibleNames.length;
+  const visibleNames = selectedLabels.slice(0, maxVisibleNames);
+  const hiddenCount = selectedLabels.length - visibleNames.length;
   const displayValue =
-    selectedTags.length === 0
-      ? "Select tags"
-      : `${visibleNames.join(", ")}${hiddenCount > 0 ? ` +${hiddenCount}` : ""}`;
+    selectedLabels.length === 0
+      ? placeholder
+      : selectedDisplayMode === "count"
+        ? `${selectedLabels.length} selected`
+        : `${visibleNames.join(", ")}${hiddenCount > 0 ? ` +${hiddenCount}` : ""}`;
 
-  const listboxId = "news-tag-multi-select-listbox";
-  const labelId = "news-tag-multi-select-label";
+  const listboxId = `${idPrefix}-listbox`;
+  const labelId = `${idPrefix}-label`;
 
   return (
-    <div className="field news-tag-multi-select">
+    <div className="news-tag-combobox">
       <label id={labelId} className="news-tag-label">
-        Tags
+        {label}
       </label>
-      <div
-        className="news-tag-multi-select-control"
-        ref={containerRef}
-        role="group"
-      >
+      <div className="news-tag-multi-select-control" ref={containerRef} role="group">
         <div
           className={`news-tag-control${isOpen ? " is-open" : ""}`}
           ref={controlRef}
@@ -515,14 +513,14 @@ function TagMultiSelect({
             type="text"
             className="news-tag-input"
             value={isOpen ? query : displayValue}
-            placeholder={isOpen ? "Type to filter…" : displayValue}
+            placeholder={isOpen ? "Type to filter..." : displayValue}
             readOnly={!isOpen}
-            disabled={disabled || tags.length === 0}
+            disabled={disabled || options.length === 0}
             aria-autocomplete="list"
             aria-controls={listboxId}
             aria-activedescendant={
               activeIndex >= 0
-                ? `news-tag-option-${filtered[activeIndex]?.id}`
+                ? `${idPrefix}-option-${filtered[activeIndex]?.key}`
                 : undefined
             }
             onChange={(event) => {
@@ -555,21 +553,6 @@ function TagMultiSelect({
           </span>
         </div>
 
-        <div className="news-tag-selected-wrap">
-          <p className="news-tag-selected-title">Selected tags</p>
-          {selectedTags.length > 0 ? (
-            <ul className="news-tag-selected-list" aria-label="Selected tags">
-              {selectedTags.map((tag) => (
-                <li key={tag.id} className="news-tag-selected-item">
-                  {tag.tag}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="news-tag-selected-empty">No tags selected.</p>
-          )}
-        </div>
-
         {isOpen &&
           createPortal(
             <ul
@@ -582,25 +565,21 @@ function TagMultiSelect({
                 width: `${listPosition.width}px`,
               }}
               role="listbox"
-              aria-label="News tags"
+              aria-label={label}
               aria-multiselectable="true"
             >
               {filtered.length === 0 ? (
                 <li className="news-tag-empty" role="option" aria-selected={false}>
-                  No matching tags
+                  No matching options
                 </li>
               ) : (
-                filtered.map((tag, index) => {
-                  const isSelected = selectedIds.includes(tag.id);
-                  const label =
-                    tag.category.trim().length > 0
-                      ? `${tag.category}: ${tag.tag}`
-                      : tag.tag;
+                filtered.map((option, index) => {
+                  const isSelected = selectedSet.has(option.key);
 
                   return (
                     <li
-                      key={tag.id}
-                      id={`news-tag-option-${tag.id}`}
+                      key={option.key}
+                      id={`${idPrefix}-option-${option.key}`}
                       role="option"
                       aria-selected={isSelected}
                       className={[
@@ -612,7 +591,7 @@ function TagMultiSelect({
                         .join(" ")}
                       onMouseDown={(event) => {
                         event.preventDefault();
-                        toggleTag(tag.id);
+                        onToggle(option.key);
                       }}
                       onMouseEnter={() => setActiveIndex(index)}
                     >
@@ -623,7 +602,7 @@ function TagMultiSelect({
                         tabIndex={-1}
                         aria-hidden="true"
                       />
-                      <span>{label}</span>
+                      <span>{option.label}</span>
                     </li>
                   );
                 })
@@ -631,6 +610,203 @@ function TagMultiSelect({
             </ul>,
             document.body,
           )}
+      </div>
+    </div>
+  );
+}
+
+type TagMultiSelectProps = {
+  tags: SavedTag[];
+  selectedIds: number[];
+  onChange: (ids: number[]) => void;
+  disabled?: boolean;
+};
+
+function TagMultiSelect({
+  tags,
+  selectedIds,
+  onChange,
+  disabled = false,
+}: TagMultiSelectProps) {
+  const uncategorizedKey = "__uncategorized__";
+  const normalizedSelectedIds = useMemo(
+    () =>
+      [...new Set(selectedIds.map((id) => Number(id)))].filter((id) =>
+        Number.isInteger(id),
+      ),
+    [selectedIds],
+  );
+
+  const categoryEntries = useMemo(() => {
+    const categoryMap = new Map<string, { label: string; tagIds: number[] }>();
+
+    for (const tag of tags) {
+      const trimmedCategory = tag.category.trim();
+      const key =
+        trimmedCategory.length > 0
+          ? trimmedCategory.toLocaleLowerCase()
+          : uncategorizedKey;
+      const label = trimmedCategory.length > 0 ? trimmedCategory : "Uncategorized";
+      const existing = categoryMap.get(key);
+
+      if (existing) {
+        existing.tagIds.push(tag.id);
+      } else {
+        categoryMap.set(key, { label, tagIds: [tag.id] });
+      }
+    }
+
+    return [...categoryMap.entries()]
+      .map(([key, value]) => ({ key, label: value.label, tagIds: value.tagIds }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [tags]);
+
+  const selectedSet = useMemo(
+    () => new Set(normalizedSelectedIds),
+    [normalizedSelectedIds],
+  );
+
+  const categoryOptions = useMemo(
+    () =>
+      categoryEntries.map((entry) => ({
+        key: entry.key,
+        label: `${entry.label} (${entry.tagIds.length})`,
+      })),
+    [categoryEntries],
+  );
+
+  const selectedCategoryKeys = useMemo(
+    () =>
+      categoryEntries
+        .filter((entry) => entry.tagIds.every((tagId) => selectedSet.has(tagId)))
+        .map((entry) => entry.key),
+    [categoryEntries, selectedSet],
+  );
+
+  const tagOptions = useMemo(
+    () =>
+      tags
+        .map((tag) => ({
+          key: String(tag.id),
+          label:
+            tag.category.trim().length > 0
+              ? `${tag.category}: ${tag.tag}`
+              : tag.tag,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [tags],
+  );
+
+  function toggleTag(tagKey: string) {
+    const tagId = Number(tagKey);
+    if (!Number.isInteger(tagId)) {
+      return;
+    }
+
+    const nextIds = selectedSet.has(tagId)
+      ? normalizedSelectedIds.filter((id) => id !== tagId)
+      : [...normalizedSelectedIds, tagId];
+    onChange(nextIds);
+  }
+
+  function toggleCategory(categoryKey: string) {
+    const category = categoryEntries.find((entry) => entry.key === categoryKey);
+    if (!category) {
+      return;
+    }
+
+    const allSelected = category.tagIds.every((tagId) => selectedSet.has(tagId));
+    const nextIds = allSelected
+      ? normalizedSelectedIds.filter((id) => !category.tagIds.includes(id))
+      : Array.from(new Set([...normalizedSelectedIds, ...category.tagIds]));
+    onChange(nextIds);
+  }
+
+  function removeTag(tagId: number) {
+    onChange(normalizedSelectedIds.filter((id) => id !== tagId));
+  }
+
+  function removeAllTags() {
+    onChange([]);
+  }
+
+  const selectedTags = normalizedSelectedIds
+    .map((id) => tags.find((tag) => tag.id === id))
+    .filter((tag): tag is SavedTag => Boolean(tag));
+
+  return (
+    <div className="field news-tag-multi-select">
+      <div className="news-tag-comboboxes">
+        <SearchableMultiSelectCombobox
+          idPrefix="news-category"
+          label="Category"
+          placeholder="Select categories"
+          options={categoryOptions}
+          selectedKeys={selectedCategoryKeys}
+          onToggle={toggleCategory}
+          disabled={disabled}
+        />
+        <SearchableMultiSelectCombobox
+          idPrefix="news-tags"
+          label="Tags"
+          placeholder="Select tags"
+          options={tagOptions}
+          selectedKeys={normalizedSelectedIds.map(String)}
+          onToggle={toggleTag}
+          selectedDisplayMode="count"
+          disabled={disabled}
+        />
+      </div>
+
+      <div className="news-tag-selected-wrap">
+        <div className="news-tag-selected-header">
+          <p className="news-tag-selected-title">Selected tags</p>
+          <button
+            type="button"
+            className="news-tag-remove-all-button"
+            onClick={removeAllTags}
+            disabled={disabled || selectedTags.length === 0}
+            title="Remove all Tags"
+            aria-label="Remove all tags"
+          >
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path
+                d="M4 7H20M9 7V5H15V7M10 11V17M14 11V17M6 7L7 19H17L18 7"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+
+        {selectedTags.length > 0 ? (
+          <ul className="news-tag-selected-list" aria-label="Selected tags">
+            {selectedTags.map((tag) => (
+              <li key={tag.id} className="news-tag-selected-item">
+                <span className="news-tag-selected-text">
+                  {tag.category.trim().length > 0
+                    ? `${tag.category}: ${tag.tag}`
+                    : tag.tag}
+                </span>
+                <button
+                  type="button"
+                  className="news-tag-remove-button"
+                  onClick={() => removeTag(tag.id)}
+                  disabled={disabled}
+                  title="Remove tag"
+                  aria-label={`Remove tag ${tag.tag}`}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="news-tag-selected-empty">No tags selected.</p>
+        )}
       </div>
     </div>
   );
@@ -1114,7 +1290,7 @@ function splitTrailingUrlPunctuation(candidateUrl: string) {
 }
 
 function renderTextWithHyperlinks(text: string) {
-  const segments: (string | JSX.Element)[] = [];
+  const segments: (string | ReactElement)[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -2748,6 +2924,10 @@ function ProfilesPage({
   const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
   const [deletingSourceId, setDeletingSourceId] = useState<number | null>(null);
   const [scrapingSourceId, setScrapingSourceId] = useState<number | null>(null);
+  const [scrapingProfileId, setScrapingProfileId] = useState<number | null>(
+    null,
+  );
+  const [profileScrapeError, setProfileScrapeError] = useState("");
   const [isCreateNotificationDialogOpen, setIsCreateNotificationDialogOpen] =
     useState(false);
   const [notificationFormError, setNotificationFormError] = useState("");
@@ -2964,6 +3144,23 @@ function ProfilesPage({
       );
     } finally {
       setScrapingSourceId(null);
+    }
+  }
+
+  async function handleScrapeProfile(profile: SavedProfile) {
+    setProfileScrapeError("");
+    setScrapingProfileId(profile.id);
+    const actionTraceId = generateActionTraceId();
+
+    try {
+      await triggerScrapeWorkflow(profile.id, profile.name, actionTraceId);
+      void onReloadErrors();
+    } catch (error) {
+      setProfileScrapeError(
+        withTraceId("Could not trigger scrape workflow.", error, actionTraceId),
+      );
+    } finally {
+      setScrapingProfileId(null);
     }
   }
 
@@ -3232,6 +3429,16 @@ function ProfilesPage({
                   <div className="saved-profile-actions">
                     <button
                       type="button"
+                      className="primary-button compact-button"
+                      onClick={() => void handleScrapeProfile(profile)}
+                      disabled={scrapingProfileId !== null}
+                    >
+                      {scrapingProfileId === profile.id
+                        ? "Scraping..."
+                        : "Scrape profile"}
+                    </button>
+                    <button
+                      type="button"
                       className="ghost-button compact-button"
                       onClick={() => startEditingProfile(profile)}
                     >
@@ -3252,6 +3459,12 @@ function ProfilesPage({
               ))}
             </ul>
           )}
+
+          {profileScrapeError ? (
+            <p className="form-error" role="alert">
+              {profileScrapeError}
+            </p>
+          ) : null}
         </section>
       ) : null}
 

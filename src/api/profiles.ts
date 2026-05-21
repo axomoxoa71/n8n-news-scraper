@@ -152,14 +152,16 @@ async function apiFetch(
       headers,
     });
 
+    const status = response.status;
+    const level = status >= 400 ? "error" : status >= 300 ? "warn" : "info";
     logWebEvent({
-      level: "info",
+      level,
       layer: "web",
       message: "http_request_completed",
       traceId,
       http_method: method,
       http_route: route,
-      http_status_code: response.status,
+      http_status_code: status,
       duration_ms: Number((performance.now() - startedAt).toFixed(3)),
     });
 
@@ -528,6 +530,7 @@ export async function deleteNotificationChannel(
 
 export async function triggerScrapeWorkflow(
   profileId: number,
+  profileName: string,
   actionTraceId?: string,
 ): Promise<void> {
   const route = buildApiRoute("/news/profile/scrape");
@@ -538,7 +541,7 @@ export async function triggerScrapeWorkflow(
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ profileId }),
+      body: JSON.stringify({ id: profileId, name: profileName }),
     },
     actionTraceId,
   );
