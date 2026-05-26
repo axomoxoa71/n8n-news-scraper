@@ -1,0 +1,445 @@
+{
+  "name": "EXAM_sub_error_logger",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "07a5d4fa-e476-45ff-a853-ad2eefef40b2",
+              "leftValue": "={{ $json.executionId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "b5d1642f-f0a7-4f9c-a768-256a2c76974a",
+              "leftValue": "={{ $json.workflowName }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "919f6a12-3d2c-4fca-a153-da17df840cd6",
+              "leftValue": "={{ $json.workflowId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "1edce955-e5e2-4af5-8208-0b556a393632",
+              "leftValue": "={{ $json.executionId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        0,
+        160
+      ],
+      "id": "d31f4485-13b9-4928-a93c-cb7bfa308244",
+      "name": "if_mandatory_fields_set"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "externalRefId"
+            },
+            {
+              "name": "externalRefType"
+            },
+            {
+              "name": "traceId"
+            },
+            {
+              "name": "executionId"
+            },
+            {
+              "name": "errorMessage"
+            },
+            {
+              "name": "errorDetails"
+            },
+            {
+              "name": "errorStack"
+            },
+            {
+              "name": "nodeName"
+            },
+            {
+              "name": "nodeType"
+            },
+            {
+              "name": "workflowName"
+            },
+            {
+              "name": "workflowId"
+            },
+            {
+              "name": "json",
+              "type": "object"
+            },
+            {
+              "name": "parentExecutionId"
+            }
+          ]
+        }
+      },
+      "id": "2d073da8-41e3-4a3b-9d02-dc3b0360af4e",
+      "typeVersion": 1.1,
+      "name": "sub_flow_error_logger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        -256,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        336,
+        160
+      ],
+      "id": "d5076432-1c8e-41ed-92fa-45dc917751ab",
+      "name": "merge_context_data"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "context",
+        "key": "=wf-context-{{ $json.parentExecutionId }}",
+        "keyType": "hash",
+        "options": {
+          "dotNotation": false
+        }
+      },
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "71e8a4e1-fc96-4e8d-b485-028672c32434",
+      "name": "redis_get_context",
+      "alwaysOutputData": false,
+      "credentials": {
+        "redis": {
+          "id": "t88BXXoLgRxpuaLK",
+          "name": "redis"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "error_t",
+          "mode": "list",
+          "cachedResultName": "error_t"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "error_http_code": "={{ $json.errorHttpCode }}",
+            "trace_id": "={{ $json.context.traceId }}",
+            "external_ref_type": "={{ $json.context.externalRefType }}",
+            "external_ref_id": "={{ $json.context.externalRefId }}",
+            "error_message": "={{ $json.errorMessage }}",
+            "error_details": "={{ $json.errorDetails }}",
+            "error_stack": "={{ $json.errorStack }}",
+            "node_name": "={{ $json.nodeName }}",
+            "node_type": "={{ $json.nodeType }}",
+            "workflow_name": "={{ $json.workflowName }}",
+            "workflow_id": "={{ $json.workflowId }}",
+            "json": "={{ $json.json }}",
+            "execution_id": "={{ $json.executionId }}",
+            "external_ref_name": "={{ $json.context.externalRefName }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "external_ref_id",
+              "displayName": "external_ref_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "external_ref_type",
+              "displayName": "external_ref_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "external_ref_name",
+              "displayName": "external_ref_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "trace_id",
+              "displayName": "trace_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "execution_id",
+              "displayName": "execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_details",
+              "displayName": "error_details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "error_stack",
+              "displayName": "error_stack",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_http_code",
+              "displayName": "error_http_code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "node_name",
+              "displayName": "node_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "node_type",
+              "displayName": "node_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow_name",
+              "displayName": "workflow_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow_id",
+              "displayName": "workflow_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "json",
+              "displayName": "json",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_ts",
+              "displayName": "created_ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "updated_ts",
+              "displayName": "updated_ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        560,
+        160
+      ],
+      "id": "36b75dd7-8d19-4757-9530-6ea75d0d9b40",
+      "name": "db_insert_error",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "if_mandatory_fields_set": {
+      "main": [
+        [
+          {
+            "node": "merge_context_data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "sub_flow_error_logger": {
+      "main": [
+        [
+          {
+            "node": "redis_get_context",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "if_mandatory_fields_set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "redis_get_context": {
+      "main": [
+        [
+          {
+            "node": "merge_context_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_context_data": {
+      "main": [
+        [
+          {
+            "node": "db_insert_error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 0,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

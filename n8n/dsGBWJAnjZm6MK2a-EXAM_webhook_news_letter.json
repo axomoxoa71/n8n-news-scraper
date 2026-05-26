@@ -1,0 +1,240 @@
+{
+  "name": "EXAM_webhook_news_letter",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select tags\nfrom profiles_aggr_v \nwhere id = {{ $json.query.profileId }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -656,
+        -80
+      ],
+      "id": "d3e26f5f-b474-4d81-a2b5-9b275b08ed2a",
+      "name": "db_get_tags",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst tags = items[0].json.tags || [];\n\n// Search String for news API\nitems[0].json.tagSearch = tags.join(\" AND \");\n\n// Build SQL IN clause with quoted values\nitems[0].json.tagArray = `(${tags.map(tag => `'${tag.replace(/'/g, \"''\")}'`).join(\", \")})`;\n\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        -80
+      ],
+      "id": "47a0767e-5a74-486b-be1c-fc6f34fb9c4c",
+      "name": "set_search"
+    },
+    {
+      "parameters": {
+        "url": "https://newsapi.org/v2/everything",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "=LLM and model and claude and openai and mistral"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('webhook_daily_news').item.json.query.from }}"
+            },
+            {
+              "name": "sortBy",
+              "value": "popularity"
+            },
+            {
+              "name": "to",
+              "value": "={{ $('webhook_daily_news').item.json.query.to }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -256,
+        -80
+      ],
+      "id": "768438a1-fd19-42a6-ba56-eb7bed1c1325",
+      "name": "http_call_newsapi",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "ViecXk37dM5mgXCj",
+          "name": "newsapi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "news",
+        "authentication": "basicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -880,
+        -80
+      ],
+      "id": "59d1beff-9985-4ba5-a20b-de3971b84952",
+      "name": "webhook_daily_news",
+      "webhookId": "c5a1b74e-a71d-43dc-bf28-af7ce78a9533",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "LXGEKbvkKL2I9WDf",
+          "name": "n8n-webhook"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chartType": "pie",
+        "labelsMode": "array",
+        "labelsArray": "={{ $json.labels }}",
+        "data": "={{ $json.data }}",
+        "output": "chart",
+        "chartOptions": {},
+        "datasetOptions": {}
+      },
+      "type": "n8n-nodes-base.quickChart",
+      "typeVersion": 1,
+      "position": [
+        336,
+        -80
+      ],
+      "id": "5a7f8678-fc66-4b12-99f6-f8290de83a2b",
+      "name": "QuickChart"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select tag,\n       count(*)\nfrom profiles_t p,news_v n\nwhere p.id= {{ $('webhook_daily_news').item.json.query.profileId }}\nand p.source_id = n.source_id\nand tag in {{ $('set_search').item.json.tagArray }}\nand n.published_ts >= '{{$('webhook_daily_news').item.json.query.from }}'\nAND published_ts < COALESCE('{{ $('webhook_daily_news').item.json.query.to }}', NOW())\ngroup by tag\n\n ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -48,
+        -80
+      ],
+      "id": "92918f64-8ea1-4800-b4da-b850783d40d2",
+      "name": "db_get_counts",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// If your previous node returns multiple items:\nconst input = items.map(item => item.json);\n\n// If your data is in a single item as an array, use this instead:\n// const input = items[0].json;\n\nconst labels = [];\nconst data = [];\n\nfor (const entry of input) {\n  if (!entry.tag) continue; // skip null/empty tags\n\n  labels.push(entry.tag);\n  data.push(Number(entry.count)); // ensure number\n}\n\nreturn [\n  {\n    json: {\n      labels,\n      data\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -80
+      ],
+      "id": "1f53f52a-6871-43c2-aaa0-0d04ac4a4b68",
+      "name": "create_labels_and_data"
+    }
+  ],
+  "connections": {
+    "db_get_tags": {
+      "main": [
+        [
+          {
+            "node": "set_search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_search": {
+      "main": [
+        [
+          {
+            "node": "http_call_newsapi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "http_call_newsapi": {
+      "main": [
+        [
+          {
+            "node": "db_get_counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "webhook_daily_news": {
+      "main": [
+        [
+          {
+            "node": "db_get_tags",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "db_get_counts": {
+      "main": [
+        [
+          {
+            "node": "create_labels_and_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_labels_and_data": {
+      "main": [
+        [
+          {
+            "node": "QuickChart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QuickChart": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 0,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

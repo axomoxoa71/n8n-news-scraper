@@ -1,0 +1,509 @@
+{
+  "name": "EXAM_schedule_news_categorization",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM news_t\nWHERE categorization_proc_guid = '{{ $('set_proc_guid').item.json.categorizationProcGUID }}'",
+        "options": {
+          "queryReplacement": "={{ $json.sourceId }},'{{ $json.lastScrapeTs }}'"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        848,
+        240
+      ],
+      "id": "cc9eecb2-79e7-4f37-9981-276320a9a6df",
+      "name": "get_new_news",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -48,
+        240
+      ],
+      "id": "6b5d6761-22ab-4a5d-894e-c1b13220eae0",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t\nSET categorization_status = 'NEW',\n    categorization_error = null,\n    categorization_proc_guid = null\nWHERE categorization_status = 'PROCESSING'\nAND updated_ts < NOW() - INTERVAL '5 minutes'\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        400,
+        240
+      ],
+      "id": "88bf0bc1-04a8-47f0-bb45-3072e0cb1997",
+      "name": "set_back_stucked_news",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t SET categorization_status = 'PROCESSING',\n                  categorization_error = null,\n  categorization_proc_guid = '{{ $('set_proc_guid').item.json.categorizationProcGUID }}'\n  WHERE id\nIN (select id from news_t\nWHERE  categorization_status='NEW'\nAND SOURCE_ID=1\n--AND id = 1016\n-- focus on latest news\norder by published_ts desc\nLIMIT 50)",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        640,
+        240
+      ],
+      "id": "f76b5f29-f818-4528-b3e6-458d3da28f5a",
+      "name": "set_cat_status_processing",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "tSA7PDFcRMLISMTC",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/tSA7PDFcRMLISMTC",
+          "cachedResultName": "EXAM_set_sentiment"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "title": "={{ $json.title }}",
+            "summary": "={{ $json.summary }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number",
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1248,
+        224
+      ],
+      "id": "93eaae73-faae-4a21-aceb-c26baa0e224b",
+      "name": "sub_flow_set_sentiment"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "89el4jc8Qd4CwFyL",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/89el4jc8Qd4CwFyL",
+          "cachedResultName": "EXAM_set_tags"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "title": "={{ $json.title }}",
+            "summary": "={{ $json.summary }}",
+            "url": "={{ $json.url }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1248,
+        48
+      ],
+      "id": "6b438970-617c-4b46-b5fa-4fd4b37f58e5",
+      "name": "sub_flow_set_tags"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "numberInputs": 3,
+        "useDataOfInput": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1456,
+        208
+      ],
+      "id": "b8893582-d9dc-4307-b918-fcdf53069a90",
+      "name": "merge_wait"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "db32f6f0-6e4b-4480-b14c-633e01f10d52",
+              "leftValue": "={{ $json.title }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "74d60b3f-8319-4a77-9194-2293177f2ff1",
+              "leftValue": "={{ $json.summary }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "9f103796-aaa9-4f2a-949c-168953e5c557",
+              "leftValue": "={{ $json.url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1040,
+        240
+      ],
+      "id": "45390f55-4ab4-4dd3-8140-d829dbdc359d",
+      "name": "if_validation"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t\nSET categorization_status = 'DONE',\n    categorization_proc_guid = null,\n    categorization_error = null\nWHERE id = {{ $json.id }}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1664,
+        224
+      ],
+      "id": "b09ad3f9-cb9a-4b5c-b73f-9caf100d4507",
+      "name": "set_done",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t\nSET categorization_status = 'NEW',\n    categorization_error = null,\n    categorization_proc_guid = null\n-- WHERE categorization_status = 'PROCESSING'\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "273e58d9-f5f7-4349-b074-a40d4b87956d",
+      "name": "set_back",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "categorizationProcGUID"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        176,
+        240
+      ],
+      "id": "986a8311-c022-445d-b004-2071de916bab",
+      "name": "set_proc_guid"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t\nSET categorization_error='Missing Title, Summary or Url. json: {{ JSON.stringify($('get_new_news').item.json) }}-ExecutionId: {{ $execution.id }}',\n  categorization_status = 'ERROR'\nWHERE id = {{ $('get_new_news').item.json.id }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1248,
+        496
+      ],
+      "id": "a7d09766-89a6-4536-b58c-0f8a09b4a290",
+      "name": "db_set_cat_error",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "get_new_news": {
+      "main": [
+        [
+          {
+            "node": "if_validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "set_proc_guid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_back_stucked_news": {
+      "main": [
+        [
+          {
+            "node": "set_cat_status_processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_cat_status_processing": {
+      "main": [
+        [
+          {
+            "node": "get_new_news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sub_flow_set_tags": {
+      "main": [
+        [
+          {
+            "node": "merge_wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sub_flow_set_sentiment": {
+      "main": [
+        [
+          {
+            "node": "merge_wait",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "if_validation": {
+      "main": [
+        [
+          {
+            "node": "sub_flow_set_sentiment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "sub_flow_set_tags",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "merge_wait",
+            "type": "main",
+            "index": 2
+          }
+        ],
+        [
+          {
+            "node": "db_set_cat_error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge_wait": {
+      "main": [
+        [
+          {
+            "node": "set_done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_proc_guid": {
+      "main": [
+        [
+          {
+            "node": "set_back_stucked_news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": []
+    }
+  },
+  "pinData": {},
+  "triggerCount": 1,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

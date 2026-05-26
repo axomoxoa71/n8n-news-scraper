@@ -1,0 +1,107 @@
+{
+  "name": "EXAM_sub_chat_logger",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "sessionId"
+            },
+            {
+              "name": "message"
+            },
+            {
+              "name": "role"
+            },
+            {
+              "name": "timestamp"
+            },
+            {
+              "name": "quality",
+              "type": "number"
+            },
+            {
+              "name": "sourceId",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "id": "a5fab0ab-f7e5-443f-8a79-129bf014eb86",
+      "typeVersion": 1.1,
+      "name": "trigger_sub_flow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "chats_t",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "session_id",
+              "fieldValue": "={{ $json.sessionId }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $json.message }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "={{ $json.role }}"
+            },
+            {
+              "fieldId": "quality",
+              "fieldValue": "={{ $json.quality }}"
+            },
+            {
+              "fieldId": "source_id",
+              "fieldValue": "={{ $json.sourceId }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        160,
+        0
+      ],
+      "id": "95877282-6301-4824-88d8-5a6f850953d0",
+      "name": "log_chat",
+      "credentials": {
+        "supabaseApi": {
+          "id": "KAqU171xms7p9Own",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "trigger_sub_flow": {
+      "main": [
+        [
+          {
+            "node": "log_chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 0,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

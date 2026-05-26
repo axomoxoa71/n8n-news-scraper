@@ -1,0 +1,2 @@
+ALTER TABLE news_t
+ADD COLUMN IF NOT EXISTS image_url TEXT;

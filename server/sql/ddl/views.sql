@@ -6,6 +6,8 @@ SELECT
   news.id,
   news.news_id,
   news.source_id,
+  profile.id AS profile_id,
+  profile.name AS profile_name,
   source.name AS source_name,
   source.description AS source_description,
   news.title,
@@ -35,13 +37,16 @@ SELECT
 FROM public.news_t AS news
 LEFT JOIN public.sources_t AS source
   ON source.id = news.source_id
+JOIN public.profiles_t AS profile
+  ON profile.source_id = source.id
 LEFT JOIN public.news_tags_t AS news_tags
   ON news_tags.news_id = news.id
 LEFT JOIN public.tags_t AS tags
   ON tags.id = news_tags.tags_id
 GROUP BY
   news.id,
-  source.id;
+  source.id,
+  profile.id;
 
 -- ---------------------------------------------------------------------------
 -- news_v: de-normalized flat view — one row per news + tag combination
@@ -52,6 +57,8 @@ SELECT
   news.id,
   news.news_id,
   news.source_id,
+  profile.id                     AS profile_id,
+  profile.name                   AS profile_name,
   source.name                    AS source_name,
   source.description             AS source_description,
   news.title,
@@ -77,6 +84,8 @@ SELECT
 FROM public.news_t AS news
 LEFT JOIN public.sources_t AS source
   ON source.id = news.source_id
+JOIN public.profiles_t AS profile
+  ON profile.source_id = source.id
 LEFT JOIN public.news_tags_t AS news_tags
   ON news_tags.news_id = news.id
 LEFT JOIN public.tags_t AS tags

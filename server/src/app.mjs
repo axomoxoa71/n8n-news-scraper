@@ -469,6 +469,85 @@ function encodeBasicAuth(user, password) {
   return Buffer.from(`${user}:${password}`, "utf8").toString("base64");
 }
 
+function getElapsedMilliseconds(startTime) {
+  return Number((Number(process.hrtime.bigint() - startTime) / 1_000_000).toFixed(3));
+}
+
+function logWebhookRequestStarted({
+  traceContext,
+  operation,
+  workflowUrl,
+  requestedEnvironment,
+}) {
+  logEvent({
+    level: "info",
+    layer: "webhook",
+    message: "n8n_webhook_request_started",
+    traceId: traceContext.traceId,
+    span_id: traceContext.spanId,
+    parent_span_id: traceContext.parentSpanId,
+    webhook_operation: operation,
+    workflow_url: workflowUrl,
+    target: "n8n",
+    requested_environment: requestedEnvironment,
+    http_method: "POST",
+  });
+}
+
+function logWebhookRequestCompleted({
+  traceContext,
+  operation,
+  workflowUrl,
+  workflowResponse,
+  durationMs,
+}) {
+  logEvent({
+    level:
+      workflowResponse.status >= 400
+        ? "error"
+        : workflowResponse.status >= 300
+          ? "warn"
+          : "info",
+    layer: "webhook",
+    message: "n8n_webhook_request_completed",
+    traceId: traceContext.traceId,
+    span_id: traceContext.spanId,
+    parent_span_id: traceContext.parentSpanId,
+    webhook_operation: operation,
+    workflow_url: workflowUrl,
+    target: "n8n",
+    http_method: "POST",
+    http_status_code: workflowResponse.status,
+    http_status_text: workflowResponse.statusText,
+    is_ok: workflowResponse.ok,
+    duration_ms: durationMs,
+  });
+}
+
+function logWebhookRequestFailed({
+  traceContext,
+  operation,
+  workflowUrl,
+  durationMs,
+  error,
+}) {
+  logEvent({
+    level: "error",
+    layer: "webhook",
+    message: "n8n_webhook_request_failed",
+    traceId: traceContext.traceId,
+    span_id: traceContext.spanId,
+    parent_span_id: traceContext.parentSpanId,
+    webhook_operation: operation,
+    workflow_url: workflowUrl,
+    target: "n8n",
+    http_method: "POST",
+    duration_ms: durationMs,
+    error_name: error instanceof Error ? error.name : "UnknownError",
+    error_message: error instanceof Error ? error.message : String(error),
+  });
+}
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HTTPS_URL_PATTERN = /^https?:\/\/.+/i;
 
@@ -1279,7 +1358,7 @@ export function createNewsScraperApi({
         traceId: traceCtx.traceId,
         span_id: traceCtx.spanId,
         parent_span_id: traceCtx.parentSpanId,
-        detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAPE_WEBHOOK_URL (or N8N_WORKFLOW_URL) in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
+        detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAPE_WEB_WEBHOOK_URL (or SCRAPE_WEBHOOK_URL, or N8N_WORKFLOW_URL) in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
       });
       sendError(request, response, 503, "Scrape workflow is not configured.");
       return;
@@ -1323,6 +1402,7 @@ export function createNewsScraperApi({
 
     try {
       const traceContext = getTraceContext(request);
+      const webhookOperation = "scrape_profile";
       const repositoryInstance = resolveRepository(request);
       const profiles = await repositoryInstance.listProfiles();
       const selectedProfile =
@@ -1373,6 +1453,14 @@ export function createNewsScraperApi({
         },
       };
 
+      const webhookRequestStart = process.hrtime.bigint();
+      logWebhookRequestStarted({
+        traceContext,
+        operation: webhookOperation,
+        workflowUrl,
+        requestedEnvironment,
+      });
+
       const workflowResponse = await fetch(workflowUrl, {
         method: "POST",
         headers: {
@@ -1384,6 +1472,14 @@ export function createNewsScraperApi({
           traceparent: traceContext.traceparent,
         },
         body: JSON.stringify(webhookPayload),
+      });
+
+      logWebhookRequestCompleted({
+        traceContext,
+        operation: webhookOperation,
+        workflowUrl,
+        workflowResponse,
+        durationMs: getElapsedMilliseconds(webhookRequestStart),
       });
 
       if (!workflowResponse.ok) {
@@ -1414,6 +1510,13 @@ export function createNewsScraperApi({
       response.status(202).json({ status: "accepted" });
     } catch (error) {
       const traceContext = getTraceContext(request);
+      logWebhookRequestFailed({
+        traceContext,
+        operation: "scrape_profile",
+        workflowUrl,
+        durationMs: null,
+        error,
+      });
 
       logEvent({
         level: "error",
@@ -1457,7 +1560,7 @@ export function createNewsScraperApi({
         traceId: traceCtx.traceId,
         span_id: traceCtx.spanId,
         parent_span_id: traceCtx.parentSpanId,
-        detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAPE_WEBHOOK_URL (or N8N_WORKFLOW_URL) in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
+        detail: `Webhook URL is not configured for environment '${requestedEnvironment}'. Set SCRAPE_WEB_WEBHOOK_URL (or SCRAPE_WEBHOOK_URL, or N8N_WORKFLOW_URL) in a matching *.${requestedEnvironment === "test" ? "test" : "prod"}.env file.`,
       });
       sendError(request, response, 503, "Scrape workflow is not configured.");
       return;
@@ -1498,6 +1601,7 @@ export function createNewsScraperApi({
 
     try {
       const traceContext = getTraceContext(request);
+      const webhookOperation = "scrape_source";
       const sources = await resolveRepository(request).listSources();
       const selectedSource =
         sources.find((source) => source.id === sourceId) ?? null;
@@ -1520,6 +1624,14 @@ export function createNewsScraperApi({
               rssFeeds: selectedSource.rssFeeds,
             };
 
+      const webhookRequestStart = process.hrtime.bigint();
+      logWebhookRequestStarted({
+        traceContext,
+        operation: webhookOperation,
+        workflowUrl,
+        requestedEnvironment,
+      });
+
       const workflowResponse = await fetch(workflowUrl, {
         method: "POST",
         headers: {
@@ -1531,6 +1643,14 @@ export function createNewsScraperApi({
           traceparent: traceContext.traceparent,
         },
         body: JSON.stringify(webhookPayload),
+      });
+
+      logWebhookRequestCompleted({
+        traceContext,
+        operation: webhookOperation,
+        workflowUrl,
+        workflowResponse,
+        durationMs: getElapsedMilliseconds(webhookRequestStart),
       });
 
       if (!workflowResponse.ok) {
@@ -1561,6 +1681,13 @@ export function createNewsScraperApi({
       response.status(202).json({ status: "accepted" });
     } catch (error) {
       const traceContext = getTraceContext(request);
+      logWebhookRequestFailed({
+        traceContext,
+        operation: "scrape_source",
+        workflowUrl,
+        durationMs: null,
+        error,
+      });
       logEvent({
         level: "error",
         layer: "webhook",
@@ -1827,6 +1954,14 @@ export function createNewsScraperApi({
       const timeoutHandle = setTimeout(() => {
         abortController.abort();
       }, resolvedTimeoutMs);
+      const webhookRequestStart = process.hrtime.bigint();
+      const webhookOperation = "chat_dispatch";
+      logWebhookRequestStarted({
+        traceContext,
+        operation: webhookOperation,
+        workflowUrl,
+        requestedEnvironment,
+      });
 
       let workflowResponse;
       try {
@@ -1838,6 +1973,14 @@ export function createNewsScraperApi({
         });
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
+          logWebhookRequestFailed({
+            traceContext,
+            operation: webhookOperation,
+            workflowUrl,
+            durationMs: getElapsedMilliseconds(webhookRequestStart),
+            error,
+          });
+
           logEvent({
             level: "error",
             layer: "webhook",
@@ -1858,10 +2001,26 @@ export function createNewsScraperApi({
           return;
         }
 
+        logWebhookRequestFailed({
+          traceContext,
+          operation: webhookOperation,
+          workflowUrl,
+          durationMs: getElapsedMilliseconds(webhookRequestStart),
+          error,
+        });
+
         throw error;
       } finally {
         clearTimeout(timeoutHandle);
       }
+
+      logWebhookRequestCompleted({
+        traceContext,
+        operation: webhookOperation,
+        workflowUrl,
+        workflowResponse,
+        durationMs: getElapsedMilliseconds(webhookRequestStart),
+      });
 
       logEvent({
         level: workflowResponse.status >= 400 ? "error" : workflowResponse.status >= 300 ? "warn" : "info",
@@ -2183,6 +2342,14 @@ export function createNewsScraperApi({
       const timeoutHandle = setTimeout(() => {
         abortController.abort();
       }, resolvedTimeoutMs);
+      const webhookRequestStart = process.hrtime.bigint();
+      const webhookOperation = "chat_create";
+      logWebhookRequestStarted({
+        traceContext,
+        operation: webhookOperation,
+        workflowUrl,
+        requestedEnvironment,
+      });
 
       let workflowResponse;
       try {
@@ -2194,6 +2361,14 @@ export function createNewsScraperApi({
         });
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
+          logWebhookRequestFailed({
+            traceContext,
+            operation: webhookOperation,
+            workflowUrl,
+            durationMs: getElapsedMilliseconds(webhookRequestStart),
+            error,
+          });
+
           await repositoryInstance.updateChatResponse(
             createdChat.id,
             `Chatbot workflow timed out after ${Math.ceil(resolvedTimeoutMs / 1000)} seconds.`,
@@ -2221,10 +2396,26 @@ export function createNewsScraperApi({
           return;
         }
 
+        logWebhookRequestFailed({
+          traceContext,
+          operation: webhookOperation,
+          workflowUrl,
+          durationMs: getElapsedMilliseconds(webhookRequestStart),
+          error,
+        });
+
         throw error;
       } finally {
         clearTimeout(timeoutHandle);
       }
+
+      logWebhookRequestCompleted({
+        traceContext,
+        operation: webhookOperation,
+        workflowUrl,
+        workflowResponse,
+        durationMs: getElapsedMilliseconds(webhookRequestStart),
+      });
 
       if (!workflowResponse.ok) {
         let webhookResponseBody;

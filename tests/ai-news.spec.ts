@@ -59,9 +59,13 @@ test("menus navigate to Profiles, Chatbot, and News pages", async ({
   await expect(page.getByRole("heading", { name: /News/ })).toBeVisible();
 });
 
-test("news page supports keyword search, favorites, and tag filtering", async ({
+test("news page supports keyword search, favorites, and tag filtering (legacy fixture)", async ({
   page,
 }) => {
+  const now = Date.now();
+  const newsTimestampA = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const newsTimestampB = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+
   const profilesResponse = [
     {
       id: 1,
@@ -84,7 +88,7 @@ test("news page supports keyword search, favorites, and tag filtering", async ({
       summary: "New benchmark compares autonomous coding agents.",
       origin: "Agent Weekly",
       url: "https://example.com/news/agent-benchmark",
-      timestamp: "2026-05-06T10:30:00.000Z",
+      timestamp: newsTimestampA,
       favorite: false,
     },
     {
@@ -94,7 +98,7 @@ test("news page supports keyword search, favorites, and tag filtering", async ({
       summary: "Vendors report fewer retrieval failures in production.",
       origin: "Applied AI Journal",
       url: "https://example.com/news/long-context",
-      timestamp: "2026-05-06T08:00:00.000Z",
+      timestamp: newsTimestampB,
       favorite: true,
     },
   ];
@@ -336,9 +340,321 @@ test("chatbot voice input language defaults to browser locale and supports germa
     .toBe("en-US");
 });
 
+test("chatbot recording button records while held and stops on release", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "en-US";
+      onstart: null | (() => void) = null;
+      onresult: null | ((event: { results: Array<Array<{ transcript: string }>> }) => void) = null;
+      onend: null | (() => void) = null;
+      onerror = null;
+      startCalls = 0;
+      stopCalls = 0;
+
+      constructor() {
+        (window as any).__mockRecognition = this;
+      }
+
+      start() {
+        this.startCalls += 1;
+        this.onstart?.();
+      }
+
+      stop() {
+        this.stopCalls += 1;
+        this.onresult?.({
+          results: [[{ transcript: "held voice input" }]],
+        });
+        this.onend?.();
+      }
+    }
+
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+  });
+
+  const profilesResponse = [
+    {
+      id: 7,
+      name: "AI Demo",
+      description: "",
+      useCustomSources: false,
+      tags: [],
+      urls: [],
+      rssFeeds: [],
+      notificationChannelIds: [],
+      notificationProfileId: null,
+    },
+  ];
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(profilesResponse),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.route("**/api/notification-profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.goto("/chatbot");
+  await expect(page.getByRole("heading", { name: "Chatbot" })).toBeVisible();
+
+  const voiceButton = page.getByRole("button", { name: "Hold for voice input" });
+
+  await voiceButton.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
+
+  const releaseVoiceButton = page.getByRole("button", {
+    name: "Release to stop voice input",
+  });
+
+  await expect(releaseVoiceButton).toBeVisible();
+  await expect(page.locator(".chat-icon-btn.is-recording")).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__mockRecognition?.startCalls ?? 0))
+    .toBe(1);
+
+  await releaseVoiceButton.dispatchEvent("pointerup", {
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
+
+  await expect(page.getByRole("button", { name: "Hold for voice input" })).toBeVisible();
+  await expect(page.locator(".chat-icon-btn.is-recording")).toHaveCount(0);
+  await expect(page.locator("#chatbot-question")).toHaveValue("held voice input");
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__mockRecognition?.stopCalls ?? 0))
+    .toBe(1);
+});
+
+test("chatbot shows microphone help action when permission is blocked", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "en-US";
+      onstart: null | (() => void) = null;
+      onresult = null;
+      onend = null;
+      onerror: null | ((event: { error: string }) => void) = null;
+
+      start() {
+        this.onstart?.();
+        this.onerror?.({ error: "not-allowed" });
+      }
+
+      stop() {}
+    }
+
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+  });
+
+  const profilesResponse = [
+    {
+      id: 7,
+      name: "AI Demo",
+      description: "",
+      useCustomSources: false,
+      tags: [],
+      urls: [],
+      rssFeeds: [],
+      notificationChannelIds: [],
+      notificationProfileId: null,
+    },
+  ];
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(profilesResponse),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.route("**/api/notification-profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.goto("/chatbot");
+  await expect(page.getByRole("heading", { name: "Chatbot" })).toBeVisible();
+
+  const voiceButton = page.getByRole("button", { name: "Hold for voice input" });
+  await voiceButton.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
+
+  await expect(
+    page.getByText("Microphone access is blocked. Please allow microphone permission and try again."),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Microphone Help" })).toBeVisible();
+});
+
+test("chatbot appends voice text across multiple hold-to-talk recordings", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "en-US";
+      onstart: null | (() => void) = null;
+      onresult: null | ((event: { resultIndex?: number; results: Array<Array<{ transcript: string }> & { isFinal?: boolean }> }) => void) = null;
+      onend: null | (() => void) = null;
+      onerror = null;
+      stopCalls = 0;
+
+      start() {
+        this.onstart?.();
+      }
+
+      stop() {
+        this.stopCalls += 1;
+        const transcript = this.stopCalls === 1 ? "first part" : "second part";
+        const result = [{ transcript }] as Array<{ transcript: string }> & {
+          isFinal?: boolean;
+        };
+        result.isFinal = true;
+        this.onresult?.({
+          resultIndex: 0,
+          results: [result],
+        });
+        this.onend?.();
+      }
+    }
+
+    (window as any).SpeechRecognition = MockSpeechRecognition;
+  });
+
+  const profilesResponse = [
+    {
+      id: 7,
+      name: "AI Demo",
+      description: "",
+      useCustomSources: false,
+      tags: [],
+      urls: [],
+      rssFeeds: [],
+      notificationChannelIds: [],
+      notificationProfileId: null,
+    },
+  ];
+
+  await page.route("**/api/profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(profilesResponse),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.route("**/api/notification-profiles", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.goto("/chatbot");
+  await expect(page.getByRole("heading", { name: "Chatbot" })).toBeVisible();
+
+  const voiceButton = page.getByRole("button", { name: /voice input/i });
+
+  await voiceButton.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
+  await voiceButton.dispatchEvent("pointerup", {
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
+
+  await expect(page.locator("#chatbot-question")).toHaveValue("first part");
+
+  await voiceButton.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
+  await voiceButton.dispatchEvent("pointerup", {
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  });
+
+  await expect(page.locator("#chatbot-question")).toHaveValue(
+    "first part second part",
+  );
+});
+
 test("news page supports keyword search, favorites, and tag filtering", async ({
   page,
 }) => {
+  const now = Date.now();
+  const newsTimestampA = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const newsTimestampB = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+
   const profilesResponse = [
     {
       id: 1,
@@ -361,7 +677,7 @@ test("news page supports keyword search, favorites, and tag filtering", async ({
       summary: "New benchmark compares autonomous coding agents.",
       origin: "Agent Weekly",
       url: "https://example.com/news/agent-benchmark",
-      timestamp: "2026-05-06T10:30:00.000Z",
+      timestamp: newsTimestampA,
       favorite: false,
     },
     {
@@ -371,7 +687,7 @@ test("news page supports keyword search, favorites, and tag filtering", async ({
       summary: "Vendors report fewer retrieval failures in production.",
       origin: "Applied AI Journal",
       url: "https://example.com/news/long-context",
-      timestamp: "2026-05-06T08:00:00.000Z",
+      timestamp: newsTimestampB,
       favorite: true,
     },
   ];

@@ -19,11 +19,12 @@ Define requirements for retrieving, searching, filtering, sorting, and paginatin
 1. The News page must load news by selected profile using `GET /api/news?profileId={id}`.
 2. The page must provide keyword filtering over title and summary fields.
 3. The page must provide favorites-only filtering.
-4. The page must support sorting by newest-first and oldest-first.
-5. The page must support pagination for larger result sets.
-6. Favorite state updates must persist through `PUT /api/news/{id}/favorite`.
-7. The News page must support manual refresh and periodic auto-refresh.
-8. When roles exist on the selected profile, role relevance filtering and prioritization of collected news is handled by the n8n scraping workflow layer, not by the UI or API. Profile roles are forwarded to n8n as part of the scrape payload so the workflow can apply relevance logic during collection.
+4. The page must provide a time period filter with options Last Hour, Last Day, Last Week, Last Month, and All; default selection is Last Week.
+5. The page must support sorting by newest-first and oldest-first.
+6. The page must support pagination for larger result sets.
+7. Favorite state updates must persist through `PUT /api/news/{id}/favorite`.
+8. The News page must support manual refresh and periodic auto-refresh.
+9. When roles exist on the selected profile, role relevance filtering and prioritization of collected news is handled by the n8n scraping workflow layer, not by the UI or API. Profile roles are forwarded to n8n as part of the scrape payload so the workflow can apply relevance logic during collection.
 
 ## Non-Functional Requirements
 
@@ -45,7 +46,8 @@ Define requirements for retrieving, searching, filtering, sorting, and paginatin
 
 1. Entering a keyword filters visible rows and clearing it restores default list behavior.
 2. Toggling favorites-only displays only rows with `favorite=true`.
-3. Sort selection changes ordering consistently for the current result set.
-4. Updating favorite state persists and is reflected after refresh.
-5. Missing or invalid `profileId` from API calls returns a handled error state.
-6. Pagination controls correctly disable previous/next at boundaries.
+3. Time period selection filters rows by their timestamp, and Reset restores Time Period to Last Week.
+4. Sort selection changes ordering consistently for the current result set.
+5. Updating favorite state persists and is reflected after refresh.
+6. Missing or invalid `profileId` from API calls returns a handled error state.
+7. Pagination controls correctly disable previous/next at boundaries.

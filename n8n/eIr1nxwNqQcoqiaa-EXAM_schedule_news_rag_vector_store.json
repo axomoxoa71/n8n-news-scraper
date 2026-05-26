@@ -1,0 +1,394 @@
+{
+  "name": "EXAM_schedule_news_rag_vector_store",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * from news_aggr_v\nWHERE rag_proc_guid = '{{ $('set_proc_guid').item.json.ragProcGUID }}'\nand categorization_status ='DONE'",
+        "options": {
+          "queryReplacement": "={{ $json.sourceId }},'{{ $json.lastScrapeTs }}'"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2064,
+        -192
+      ],
+      "id": "80680fe6-82eb-428c-b8fe-1d4b010e7bab",
+      "name": "get_new_news",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "text-embedding-3-small"
+            },
+            {
+              "name": "input",
+              "value": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2432,
+        -192
+      ],
+      "id": "8ca165d8-0efb-41d0-9948-6981c3298aeb",
+      "name": "http_openai_embedding",
+      "credentials": {
+        "openAiApi": {
+          "id": "KFQuSrSfUmlSJ8u3",
+          "name": "openai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n-exam-pri3vo2.svc.aped-4627-b74a.pinecone.io/vectors/upsert",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "pineconeApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2864,
+        -192
+      ],
+      "id": "4640c3b6-943f-4af8-a646-f40489841e26",
+      "name": "http_add_vector_pinecone",
+      "credentials": {
+        "pineconeApi": {
+          "id": "Fze9sc9MSInLwR0U",
+          "name": "pinecone"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "84f71b7d-8aef-4ed3-8240-afe47ddda7b7",
+              "name": "namespace",
+              "value": "=news-source-{{ $('get_new_news').item.json.source_id }}",
+              "type": "string"
+            },
+            {
+              "id": "6d057150-79d4-461a-a57b-13d982d5b162",
+              "name": "vectors",
+              "value": "=[\n{\n\"id\":\"{{ $('get_new_news').item.json.news_id }}\",\n\"values\": [{{ $json.data[0].embedding }}],\n\"metadata\": {\n\"id\":{{ $('get_new_news').item.json.id }},\n\"title\":\"{{ $('replace_spec_chars').item.json.title }}\",\n\"url\":\"{{ $('get_new_news').item.json.url }}\",\n\"origin\":\"{{ $('get_new_news').item.json.origin }}\",\n\"sentiment\":\"{{ $('get_new_news').item.json.sentiment}}\",\n\"tags\":\"{{ $('get_new_news').item.json.tags}}\",\n\"publishDate\":\"{{ new Date($('get_new_news').item.json.published_ts).toISOString().split('T')[0] }}\"\n}\n}\n]",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {
+          "dotNotation": true
+        }
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        -192
+      ],
+      "id": "5f2ebc5c-e4bc-4d4a-bc3e-462de4639a4b",
+      "name": "build_vector_json",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        1200,
+        -192
+      ],
+      "id": "e3a5a247-90be-45bf-a1f0-6ec0f70f5aef",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t SET rag_status = 'PROCESSING',\n                  rag_proc_guid = '{{ $('set_proc_guid').item.json.ragProcGUID }}'\n  WHERE id\nIN (select id from news_t\nWHERE  rag_status='NEW'\n  -- add only to rag when categorization is finished\n  AND  categorization_status ='DONE'\n-- AND id = 3170\norder by published_ts desc\nLIMIT 100)",
+        "options": {
+          "queryBatching": "independently"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1824,
+        -192
+      ],
+      "id": "f926c6ce-abef-4ef6-b2a9-ca145b6637f6",
+      "name": "set_rag_status_processing",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t\nSET rag_status = 'NEW', \n    rag_proc_guid = null,\n    rag_error = null\nWHERE rag_status = 'PROCESSING'\nAND updated_ts < NOW() - INTERVAL '5 minutes'\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1584,
+        -192
+      ],
+      "id": "883af91f-434d-46d5-b119-50b5bf5e4cbd",
+      "name": "set_back_stucked_news",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "ragProcGUID"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        -192
+      ],
+      "id": "2ee8b46b-7602-4f60-9e3a-2761251930f0",
+      "name": "set_proc_guid"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t\nSET rag_status = 'NEW', \n   rag_proc_guid = null,\n  rag_error = null\nWHERE rag_status = 'PROCESSING'\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1264,
+        -464
+      ],
+      "id": "3c71f97a-74f2-4831-bbfb-97c119dec1b5",
+      "name": "set_back",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "let text = $json.title;\nlet summary = $json.summary;\n\ntext = text\n  .replace(/\\$\\\\pi\\$/g, 'π')\n  .replace(/\\$\\\\alpha\\$/g, 'α')\n  .replace(/\\$\\\\beta\\$/g, 'β')\n  .replace(/\\$\\\\gamma\\$/g, 'γ')\n  .replace(/&amp;/g, '&')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/&quot;/g, '\"')\n  .replace(/&#39;/g, \"'\");\n  ;\n\nsummary = summary\n  .replace(/\\$\\\\pi\\$/g, 'π')\n  .replace(/\\$\\\\alpha\\$/g, 'α')\n  .replace(/\\$\\\\beta\\$/g, 'β')\n  .replace(/\\$\\\\gamma\\$/g, 'γ')\n  .replace(/&amp;/g, '&')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/&quot;/g, '\"')\n  .replace(/&#39;/g, \"'\");\n  ;\n\nreturn {\n  json: {\n    ...$json,\n    title: text,\n    summary: summary\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        -192
+      ],
+      "id": "e773d7c8-c9c7-4bdf-8a13-84dca66cb665",
+      "name": "replace_spec_chars"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t\nSET rag_status = 'DONE',\n    rag_proc_guid = null,\n    rag_error = null\nWHERE id =  {{ $('get_new_news').item.json.id }}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3040,
+        -192
+      ],
+      "id": "9e2f5403-36ce-4b36-aeff-da4085ebaa86",
+      "name": "set_done",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE news_t\nSET rag_error='Error in Vector Build in executionId: {{ $execution.id }}',\n  rag_status ='ERROR'\nWHERE id = {{ $('get_new_news').item.json.id }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2832,
+        80
+      ],
+      "id": "683acb04-c28c-4847-8c48-d32bfcfbb33a",
+      "name": "db_set_cat_error",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "get_new_news": {
+      "main": [
+        [
+          {
+            "node": "replace_spec_chars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "http_openai_embedding": {
+      "main": [
+        [
+          {
+            "node": "build_vector_json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "http_add_vector_pinecone": {
+      "main": [
+        [
+          {
+            "node": "set_done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build_vector_json": {
+      "main": [
+        [
+          {
+            "node": "http_add_vector_pinecone",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "db_set_cat_error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "set_proc_guid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_rag_status_processing": {
+      "main": [
+        [
+          {
+            "node": "get_new_news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_back_stucked_news": {
+      "main": [
+        [
+          {
+            "node": "set_rag_status_processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_proc_guid": {
+      "main": [
+        [
+          {
+            "node": "set_back_stucked_news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "replace_spec_chars": {
+      "main": [
+        [
+          {
+            "node": "http_openai_embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 0,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

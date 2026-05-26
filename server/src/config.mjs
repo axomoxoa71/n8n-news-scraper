@@ -61,8 +61,10 @@ function resolveEnvironmentPostgresConfig(env, environmentScopedEnv = {}) {
 
 function resolveEnvironmentWebhookConfig(env, environmentScopedEnv = {}) {
   const webhookUrl =
+    toNonEmptyString(environmentScopedEnv.SCRAPE_WEB_WEBHOOK_URL) ||
     toNonEmptyString(environmentScopedEnv.SCRAPE_WEBHOOK_URL) ||
     toNonEmptyString(environmentScopedEnv.N8N_WORKFLOW_URL) ||
+    toNonEmptyString(env.SCRAPE_WEB_WEBHOOK_URL) ||
     toNonEmptyString(env.SCRAPE_WEBHOOK_URL) ||
     toNonEmptyString(env.N8N_WORKFLOW_URL);
   const basicAuthUser =

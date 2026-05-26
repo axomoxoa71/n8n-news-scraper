@@ -1,0 +1,125 @@
+{
+  "name": "EXAM_webhook_chat_logger",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chat-logger",
+        "authentication": "basicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "406d0aa7-6a7d-4485-9685-c875f3f0ff2b",
+      "name": "webhook_chat_logger",
+      "webhookId": "c4fb559d-d8be-4626-abb4-cdaa950cf53c"
+    },
+    {
+      "parameters": {
+        "tableId": "chats_t",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "session_id",
+              "fieldValue": "={{ $json.body.sessionId }}"
+            },
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $json.body.message }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "={{ $json.body.role }}"
+            },
+            {
+              "fieldId": "quality",
+              "fieldValue": "={{ $json.body.quality }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "24c3f317-46c9-42de-becd-d2da9003d3a7",
+      "name": "Create a row"
+    }
+  ],
+  "connections": {
+    "webhook_chat_logger": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {
+    "webhook_chat_logger": [
+      {
+        "json": {
+          "headers": {
+            "host": "axomoxoa.app.n8n.cloud",
+            "user-agent": "PostmanRuntime/7.54.0",
+            "content-length": "133",
+            "accept": "*/*",
+            "accept-encoding": "gzip, br",
+            "authorization": {
+              "__redacted": true,
+              "reason": "node_defined_field",
+              "canReveal": false
+            },
+            "cdn-loop": "cloudflare; loops=1; subreqs=1",
+            "cf-connecting-ip": "92.208.114.143",
+            "cf-ew-via": "15",
+            "cf-ipcountry": "DE",
+            "cf-ray": "9fac2f33fce3bd24-FRA",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "cf-worker": "n8n.cloud",
+            "content-type": "application/json",
+            "postman-token": "0c12dd9d-0c00-4e19-8720-19008ff31d4b",
+            "traceparent": "00-62eb7d341959490b780438202d9102fa-7cd410073220f8ba-01",
+            "x-forwarded-for": "92.208.114.143, 172.70.248.187",
+            "x-forwarded-host": "axomoxoa.app.n8n.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "traefik-prod-users-gwc-75-6c7789cbbb-8hj29",
+            "x-is-trusted": "yes",
+            "x-real-ip": "92.208.114.143"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "sessionId": "6d25be61-36fb-4ccd-962d-4346074af697",
+            "message": "My Test Message",
+            "role": "user",
+            "quality": 5
+          },
+          "webhookUrl": "https://axomoxoa.app.n8n.cloud/webhook-test/chat-logger",
+          "executionMode": "test"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "triggerCount": 0,
+  "meta": null
+}

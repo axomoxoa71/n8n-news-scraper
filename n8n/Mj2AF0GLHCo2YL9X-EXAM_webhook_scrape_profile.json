@@ -1,0 +1,652 @@
+{
+  "name": "EXAM_webhook_scrape_profile",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "\nconst tags = items[0].json.body.scrape.profile.tags || [];\n\n// Search String for news API\nitems[0].json.tagSearch = tags.join(\" OR \") + \" AND (AI OR KI OR Künstliche Intelligenz OR Articial Intelligence)\";\n\n// Build SQL IN clause with quoted values\nitems[0].json.tagArray = `(${tags.map(tag => `'${tag.replace(/'/g, \"''\")}'`).join(\", \")})`;\n\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        0
+      ],
+      "id": "4523431a-dd70-4422-b9f0-c6777f0a6aa2",
+      "name": "set_search"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const crypto = require('crypto');\n\nconst input =$json.url;\n\n$json.newsId = crypto\n  .createHash('sha256')\n  .update(input)\n  .digest('hex');\n\nreturn $input.item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        0
+      ],
+      "id": "094733e9-630a-466d-9081-009d0a215988",
+      "name": "add_hash_newsid"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1056,
+        0
+      ],
+      "id": "017f8098-4494-4c00-81ec-58e010bc9404",
+      "name": "loop_paging"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"message\":\"Scraped successfully:{{ $('set_total_result').item.json.totalResults }} via newsapi\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1296,
+        -208
+      ],
+      "id": "a747b712-ac43-4157-87e6-274bd1fe3da3",
+      "name": "webhook_response"
+    },
+    {
+      "parameters": {
+        "url": "https://newsapi.org/v2/everything",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "=Mistral OR OpenAI OR GPT OR Claude OR RAG OR AI Agents OR Vector Databases OR MCP OR Gemini OR Agent Skills AND (AI OR KI OR Künstliche Intelligenz OR Articial Intelligence)"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('set_from_date').item.json.fromDate }}"
+            },
+            {
+              "name": "sortBy",
+              "value": "popularity"
+            },
+            {
+              "name": "pagesize",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        0
+      ],
+      "id": "47cb2763-2994-4096-8ba7-d73fed255fcd",
+      "name": "http_call_newsapi_get_count",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "ViecXk37dM5mgXCj",
+          "name": "newsapi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Take the total result and divide by max pagesize of 100 and create loop array\nconst total = items[0].json.totalResults;\nconst pageSize = 100;\n\nconst pages = Math.ceil(total / pageSize);\n\nreturn Array.from({ length: pages }, (_, i) => ({\n  json: { page: i + 1 }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        0
+      ],
+      "id": "6de3f645-819e-4aed-9673-06f8987c934a",
+      "name": "code_create_lopp_array"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5ba8cb40-4fb4-4ecf-b417-4739c867c8fa",
+              "name": "totalResults",
+              "value": "={{ $json.totalResults }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        0
+      ],
+      "id": "fae320a6-6b15-4bb7-9170-ee493f906a71",
+      "name": "set_total_result"
+    },
+    {
+      "parameters": {
+        "url": "https://newsapi.org/v2/everything",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('set_search').item.json.tagSearch }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('set_from_date').item.json.fromDate }}"
+            },
+            {
+              "name": "sortBy",
+              "value": "popularity"
+            },
+            {
+              "name": "pagesize",
+              "value": "100"
+            },
+            {
+              "name": "page",
+              "value": "={{ $json.page }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1296,
+        0
+      ],
+      "id": "490cf733-d4a1-4157-957b-490b99ae9141",
+      "name": "http_call_newsapi_get_count1",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "ViecXk37dM5mgXCj",
+          "name": "newsapi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "articles",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        0
+      ],
+      "id": "7241d406-8cc1-4c0b-bd4d-ae688affe693",
+      "name": "split_array"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "news_t",
+          "mode": "list",
+          "cachedResultName": "news_t"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "favorite": false,
+            "news_id": "={{ $json.newsId }}",
+            "title": "={{ $json.title }}",
+            "summary": "={{ $json.content ?? 'N/A' }}",
+            "published_ts": "={{ $json.publishedAt }}",
+            "origin": "=newsapi",
+            "source_id": "={{ $('webhook_scrape_profile').item.json.body.scrape.profile.sourceId }}",
+            "url": "={{ $json.url }}",
+            "image_url": "={{ $json.urlToImage }}",
+            "author": "={{ $json.author }}"
+          },
+          "matchingColumns": [
+            "news_id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "news_id",
+              "displayName": "news_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_id",
+              "displayName": "source_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "sentiment",
+              "displayName": "sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "image",
+              "displayName": "image",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "origin",
+              "displayName": "origin",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "published_ts",
+              "displayName": "published_ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "favorite",
+              "displayName": "favorite",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "rag_status",
+              "displayName": "rag_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "rag_proc_guid",
+              "displayName": "rag_proc_guid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "rag_error",
+              "displayName": "rag_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "categorization_status",
+              "displayName": "categorization_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "categorization_proc_guid",
+              "displayName": "categorization_proc_guid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "categorization_error",
+              "displayName": "categorization_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "created_ts",
+              "displayName": "created_ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "updated_ts",
+              "displayName": "updated_ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "image_url",
+              "displayName": "image_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "author",
+              "displayName": "author",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1920,
+        0
+      ],
+      "id": "5dac5580-c4aa-4f9c-bc64-c948d3646b15",
+      "name": "insert_news",
+      "credentials": {
+        "postgres": {
+          "id": "cZ5PFH6C5ypc8712",
+          "name": "supabase-postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "scrape-web-news",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -112,
+        0
+      ],
+      "id": "3442bf2c-e73c-47b7-b8b4-f1e4157d0e7d",
+      "name": "webhook_scrape_profile",
+      "webhookId": "c20d2eeb-96bd-4f4b-b087-dcd8afd57b6d",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "LXGEKbvkKL2I9WDf",
+          "name": "n8n-webhook"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b38fa38b-c616-4938-b0aa-a968e42152dd",
+              "name": "fromDate",
+              "value": "={{$now.minus({ days: 2 }).toISODate()}}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        112,
+        0
+      ],
+      "id": "28e8d531-0995-4bd5-be3f-27792b5f7939",
+      "name": "set_from_date"
+    }
+  ],
+  "connections": {
+    "set_search": {
+      "main": [
+        [
+          {
+            "node": "http_call_newsapi_get_count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add_hash_newsid": {
+      "main": [
+        [
+          {
+            "node": "insert_news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "loop_paging": {
+      "main": [
+        [
+          {
+            "node": "webhook_response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "http_call_newsapi_get_count1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "http_call_newsapi_get_count": {
+      "main": [
+        [
+          {
+            "node": "set_total_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_total_result": {
+      "main": [
+        [
+          {
+            "node": "code_create_lopp_array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "code_create_lopp_array": {
+      "main": [
+        [
+          {
+            "node": "loop_paging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "http_call_newsapi_get_count1": {
+      "main": [
+        [
+          {
+            "node": "split_array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split_array": {
+      "main": [
+        [
+          {
+            "node": "add_hash_newsid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "webhook_scrape_profile": {
+      "main": [
+        [
+          {
+            "node": "set_from_date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_news": {
+      "main": [
+        [
+          {
+            "node": "loop_paging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set_from_date": {
+      "main": [
+        [
+          {
+            "node": "set_search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "9vKV1a39erm7VNRn",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 1,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

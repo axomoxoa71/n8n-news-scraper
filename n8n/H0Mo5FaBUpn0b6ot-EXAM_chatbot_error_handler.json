@@ -1,0 +1,129 @@
+{
+  "name": "EXAM_chatbot_error_handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        144,
+        64
+      ],
+      "id": "f9e80848-25c7-4cb7-8364-b89a8de6fe9c",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "content": "## Error Handler\n\n",
+        "height": 400,
+        "width": 1200,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "edab77fa-6c2b-4652-ad3e-3d1c3b291949",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        352,
+        64
+      ],
+      "id": "f7b6b26d-07de-406a-8779-78c59dece00a",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {
+    "Error Trigger": [
+      {
+        "json": {
+          "execution": {
+            "id": "794",
+            "url": "https://axomoxoa.app.n8n.cloud/workflow/JkfZUkO3KN95ekZr/executions/794",
+            "error": {
+              "level": "warning",
+              "tags": {},
+              "timestamp": 1778501157149,
+              "context": {
+                "itemIndex": 2
+              },
+              "functionality": "regular",
+              "name": "NodeOperationError",
+              "node": {
+                "parameters": {
+                  "url": "={{ $json.feedUrl }}",
+                  "options": {
+                    "customFields": ""
+                  }
+                },
+                "type": "n8n-nodes-base.rssFeedRead",
+                "typeVersion": 1.2,
+                "position": [
+                  -144,
+                  224
+                ],
+                "id": "cf11adf8-fb16-448b-9001-c2afb6482a69",
+                "name": "RSS Read",
+                "notesInFlow": false,
+                "retryOnFail": false
+              },
+              "messages": [],
+              "message": "Status code 404",
+              "stack": "NodeOperationError: Status code 404\n    at ExecuteContext.execute (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-nodes-base@file+packages+nodes-base_@aws-sdk+credential-providers@3.808.0_asn1.js@5_8da18263ca0574b0db58d4fefd8173ce/node_modules/n8n-nodes-base/nodes/RssFeedRead/RssFeedRead.node.ts:148:12)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at WorkflowExecute.executeNode (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-core@file+packages+core_@opentelemetry+api@1.9.0_@opentelemetry+exporter-trace-otlp_2d19a9be2839cb42cd2e8c9cacd05d5a/node_modules/n8n-core/src/execution-engine/workflow-execute.ts:1048:9)\n    at WorkflowExecute.runNode (/usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-core@file+packages+core_@opentelemetry+api@1.9.0_@opentelemetry+exporter-trace-otlp_2d19a9be2839cb42cd2e8c9cacd05d5a/node_modules/n8n-core/src/execution-engine/workflow-execute.ts:1239:11)\n    at /usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-core@file+packages+core_@opentelemetry+api@1.9.0_@opentelemetry+exporter-trace-otlp_2d19a9be2839cb42cd2e8c9cacd05d5a/node_modules/n8n-core/src/execution-engine/workflow-execute.ts:1687:27\n    at /usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-core@file+packages+core_@opentelemetry+api@1.9.0_@opentelemetry+exporter-trace-otlp_2d19a9be2839cb42cd2e8c9cacd05d5a/node_modules/n8n-core/src/execution-engine/workflow-execute.ts:2339:11"
+            },
+            "lastNodeExecuted": "RSS Read",
+            "mode": "webhook",
+            "executionContext": {
+              "version": 1,
+              "establishedAt": 1778501154478,
+              "source": "webhook",
+              "redaction": {
+                "version": 1,
+                "policy": "none"
+              },
+              "triggerNode": {
+                "name": "Webhook",
+                "type": "n8n-nodes-base.webhook"
+              }
+            }
+          },
+          "workflow": {
+            "id": "JkfZUkO3KN95ekZr",
+            "name": "EXAM_scrape_news"
+          }
+        }
+      }
+    ]
+  },
+  "triggerCount": 0,
+  "meta": null
+}

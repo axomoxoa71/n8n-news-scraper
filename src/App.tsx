@@ -91,6 +91,33 @@ const CHAT_HISTORY_TIME_PERIOD_OPTIONS: {
   { value: "all", label: "All" },
 ];
 
+function isNewsItemInTimePeriod(
+  timestamp: string,
+  timePeriod: ChatHistoryTimePeriod,
+): boolean {
+  if (timePeriod === "all") {
+    return true;
+  }
+
+  const itemTime = new Date(timestamp).getTime();
+  if (Number.isNaN(itemTime)) {
+    return false;
+  }
+
+  const now = Date.now();
+  const windowByTimePeriod: Record<
+    Exclude<ChatHistoryTimePeriod, "all">,
+    number
+  > = {
+    last_hour: 60 * 60 * 1000,
+    last_day: 24 * 60 * 60 * 1000,
+    last_week: 7 * 24 * 60 * 60 * 1000,
+    last_month: 30 * 24 * 60 * 60 * 1000,
+  };
+
+  return itemTime >= now - windowByTimePeriod[timePeriod];
+}
+
 const CHAT_HISTORY_ROLE_OPTIONS: {
   value: ChatHistoryRoleFilter;
   label: string;
@@ -3746,6 +3773,17 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const isVoiceHoldActiveRef = useRef(false);
+  const activeVoicePointerIdRef = useRef<number | null>(null);
+  const currentQuestionRef = useRef("");
+  const latestVoiceTranscriptRef = useRef("");
+  const shouldStopVoiceRecognitionRef = useRef(false);
+  const finalVoiceTranscriptRef = useRef("");
+  const voiceInputBaseTextRef = useRef("");
+  const voiceFinalizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const lastVoiceRecognitionErrorRef = useRef<string | null>(null);
 
   const chatTurns = chatTurnsBySession[sessionId] ?? [];
 
@@ -3770,6 +3808,10 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
     if (sendSuccessTimerRef.current) {
       clearTimeout(sendSuccessTimerRef.current);
       sendSuccessTimerRef.current = null;
+    }
+    if (voiceFinalizeTimerRef.current) {
+      clearTimeout(voiceFinalizeTimerRef.current);
+      voiceFinalizeTimerRef.current = null;
     }
     setIsRecording(false);
 
@@ -3812,6 +3854,109 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
   }, [selectedProfile?.id, location.key]);
 
   useEffect(() => {
+    currentQuestionRef.current = question;
+  }, [question]);
+
+  function resolveVoiceRecognitionErrorMessage(errorCode: string) {
+    switch (errorCode) {
+      case "not-allowed":
+      case "service-not-allowed":
+        return "Microphone access is blocked. Please allow microphone permission and try again.";
+      case "audio-capture":
+        return "No microphone input device was found. Please check your microphone settings.";
+      case "network":
+        return "Speech recognition network error. Please check your connection and try again.";
+      case "aborted":
+        return "Speech recognition was interrupted. Please press and hold again.";
+      case "language-not-supported":
+        return "Selected voice language is not supported by this browser.";
+      case "no-speech":
+        return "No speech was recognized. Please try again.";
+      default:
+        return "Voice input failed. Please try again.";
+    }
+  }
+
+  function isMicrophonePermissionError(message: string) {
+    const normalizedMessage = message.toLowerCase();
+    return (
+      normalizedMessage.includes("microphone access is blocked") ||
+      normalizedMessage.includes("voice input is not supported") ||
+      normalizedMessage.includes("allow microphone") ||
+      normalizedMessage.includes("not-allowed") ||
+      normalizedMessage.includes("service-not-allowed")
+    );
+  }
+
+  function openMicrophoneHelp() {
+    const userAgent =
+      typeof navigator === "object" && typeof navigator.userAgent === "string"
+        ? navigator.userAgent.toLowerCase()
+        : "";
+
+    let helpUrl =
+      "https://support.google.com/chrome/answer/2693767?hl=en&co=GENIE.Platform%3DDesktop#zippy=%2Callow-site-access-to-your-microphone";
+
+    if (userAgent.includes("firefox")) {
+      helpUrl =
+        "https://support.mozilla.org/en-US/kb/how-manage-your-camera-and-microphone-permissions";
+    } else if (userAgent.includes("edg/")) {
+      helpUrl =
+        "https://support.microsoft.com/en-us/microsoft-edge/website-permissions-and-privacy-in-microsoft-edge-5972f55f-9d61-4ca3-9c63-d72b4d1bd7b3";
+    }
+
+    window.open(helpUrl, "_blank", "noopener,noreferrer");
+  }
+
+  function clearVoiceFinalizeTimer() {
+    if (voiceFinalizeTimerRef.current) {
+      clearTimeout(voiceFinalizeTimerRef.current);
+      voiceFinalizeTimerRef.current = null;
+    }
+  }
+
+  function combineBaseAndVoiceText(baseText: string, voiceText: string) {
+    const trimmedBaseText = baseText.trim();
+    const trimmedVoiceText = voiceText.trim();
+
+    if (!trimmedVoiceText) {
+      return trimmedBaseText;
+    }
+
+    if (!trimmedBaseText) {
+      return trimmedVoiceText;
+    }
+
+    return `${trimmedBaseText} ${trimmedVoiceText}`;
+  }
+
+  function commitVoiceTranscriptFromBuffer() {
+    const normalizedTranscript = latestVoiceTranscriptRef.current.trim();
+
+    if (normalizedTranscript.length === 0) {
+      if (lastVoiceRecognitionErrorRef.current) {
+        setChatError(
+          resolveVoiceRecognitionErrorMessage(lastVoiceRecognitionErrorRef.current),
+        );
+        return;
+      }
+
+      if (currentQuestionRef.current.trim().length === 0) {
+        setChatError("No speech was recognized. Please try again.");
+      }
+      return;
+    }
+
+    const combinedText = combineBaseAndVoiceText(
+      voiceInputBaseTextRef.current,
+      normalizedTranscript,
+    );
+
+    setChatError("");
+    setQuestion(combinedText);
+  }
+
+  useEffect(() => {
     const SpeechRecognitionCtor =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
@@ -3826,20 +3971,83 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
     recognition.interimResults = true;
     recognition.lang = voiceInputLanguage;
 
+    recognition.onstart = () => {
+      shouldStopVoiceRecognitionRef.current = false;
+      lastVoiceRecognitionErrorRef.current = null;
+      setIsRecording(true);
+    };
+
     recognition.onresult = (event: any) => {
-      let transcript = "";
-      for (let index = 0; index < event.results.length; index += 1) {
-        transcript += event.results[index][0].transcript;
+      let interimTranscript = "";
+
+      for (
+        let index = event.resultIndex ?? 0;
+        index < event.results.length;
+        index += 1
+      ) {
+        const result = event.results[index];
+        const transcriptChunk = result?.[0]?.transcript ?? "";
+
+        if (!transcriptChunk) {
+          continue;
+        }
+
+        if (result.isFinal) {
+          finalVoiceTranscriptRef.current += transcriptChunk;
+        } else {
+          interimTranscript += transcriptChunk;
+        }
       }
-      setQuestion(transcript.trimStart());
+
+      const combinedTranscript = `${finalVoiceTranscriptRef.current}${interimTranscript}`.trim();
+
+      if (combinedTranscript.length > 0) {
+        lastVoiceRecognitionErrorRef.current = null;
+        latestVoiceTranscriptRef.current = combinedTranscript;
+        setQuestion(
+          combineBaseAndVoiceText(
+            voiceInputBaseTextRef.current,
+            combinedTranscript,
+          ),
+        );
+      }
     };
 
     recognition.onend = () => {
+      clearVoiceFinalizeTimer();
+      commitVoiceTranscriptFromBuffer();
+
+      if (shouldStopVoiceRecognitionRef.current) {
+        shouldStopVoiceRecognitionRef.current = false;
+        setIsRecording(false);
+        return;
+      }
+
+      if (isVoiceHoldActiveRef.current) {
+        try {
+          recognition.start();
+          return;
+        } catch {
+          // Ignore restart failures and fall back to non-recording state.
+        }
+      }
+
+      if (!isVoiceHoldActiveRef.current) {
+        setIsRecording(false);
+        return;
+      }
+
       setIsRecording(false);
     };
 
-    recognition.onerror = () => {
-      setIsRecording(false);
+    recognition.onerror = (event: any) => {
+      const errorCode = typeof event?.error === "string" ? event.error : "unknown";
+      lastVoiceRecognitionErrorRef.current = errorCode;
+      setChatError(resolveVoiceRecognitionErrorMessage(errorCode));
+
+      if (!isVoiceHoldActiveRef.current) {
+        setIsRecording(false);
+      }
     };
 
     recognitionRef.current = recognition;
@@ -3859,6 +4067,12 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
       recognitionRef.current.lang = voiceInputLanguage;
     }
   }, [voiceInputLanguage]);
+
+  useEffect(() => {
+    return () => {
+      clearVoiceFinalizeTimer();
+    };
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -4007,22 +4221,75 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
     setSelectedFileName(selectedFile ? selectedFile.name : null);
   }
 
-  function toggleVoiceInput() {
+  function startVoiceInput() {
     if (!recognitionRef.current) {
       setChatError("Voice input is not supported in this browser.");
       return;
     }
 
     if (isRecording) {
-      recognitionRef.current.stop();
-      setIsRecording(false);
       return;
     }
 
     setChatError("");
-    recognitionRef.current.start();
+    clearVoiceFinalizeTimer();
+    latestVoiceTranscriptRef.current = "";
+    finalVoiceTranscriptRef.current = "";
+    voiceInputBaseTextRef.current = currentQuestionRef.current;
+    shouldStopVoiceRecognitionRef.current = false;
+    lastVoiceRecognitionErrorRef.current = null;
     setIsRecording(true);
+    try {
+      recognitionRef.current.start();
+    } catch {
+      setIsRecording(false);
+      setChatError(
+        "Could not start voice input. Please allow microphone access and try again.",
+      );
+    }
   }
+
+  function stopVoiceInput() {
+    if (!isRecording) {
+      return;
+    }
+
+    try {
+      shouldStopVoiceRecognitionRef.current = true;
+      recognitionRef.current?.stop?.();
+    } catch {
+      shouldStopVoiceRecognitionRef.current = false;
+      setChatError("Could not stop voice input. Please try again.");
+    }
+
+    clearVoiceFinalizeTimer();
+    voiceFinalizeTimerRef.current = setTimeout(() => {
+      commitVoiceTranscriptFromBuffer();
+      shouldStopVoiceRecognitionRef.current = false;
+      setIsRecording(false);
+      voiceFinalizeTimerRef.current = null;
+    }, 500);
+
+    setIsRecording(false);
+  }
+
+  useEffect(() => {
+    const handleWindowBlur = () => {
+      if (!isVoiceHoldActiveRef.current) {
+        return;
+      }
+
+      isVoiceHoldActiveRef.current = false;
+      activeVoicePointerIdRef.current = null;
+      stopVoiceInput();
+    };
+
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, [isRecording]);
 
   async function handleSubmitQuestion(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -4239,7 +4506,25 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
           </ModalDialog>
         ) : null}
 
-        {chatError ? <p className="global-error">{chatError}</p> : null}
+        {chatError ? (
+          <div className="chat-error-panel" role="alert">
+            <p className="global-error">{chatError}</p>
+            {isMicrophonePermissionError(chatError) ? (
+              <div className="chat-error-actions">
+                <button
+                  type="button"
+                  className="ghost-button compact-button compact-button-micro"
+                  onClick={openMicrophoneHelp}
+                >
+                  Open Microphone Help
+                </button>
+                <span className="chat-error-tip">
+                  You can also click the lock icon in the browser address bar and set microphone access to Allow.
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="chat-thread" aria-label="Chat history" role="log">
           <div className="chat-window">
@@ -4383,13 +4668,62 @@ function ChatbotPage({ selectedProfile }: ContextPageProps) {
             </button>
             <button
               type="button"
-              className={`chat-icon-btn ${isRecording ? "is-recording" : ""}`}
-              onClick={toggleVoiceInput}
+              className={`chat-icon-btn${isRecording ? " is-recording" : ""}`}
+              onPointerDown={(event) => {
+                if (event.button !== 0 || !event.isPrimary || isSending) {
+                  return;
+                }
+
+                event.preventDefault();
+                activeVoicePointerIdRef.current = event.pointerId;
+                isVoiceHoldActiveRef.current = true;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                startVoiceInput();
+              }}
+              onPointerUp={(event) => {
+                if (
+                  event.button !== 0 ||
+                  !event.isPrimary ||
+                  !isVoiceHoldActiveRef.current ||
+                  activeVoicePointerIdRef.current !== event.pointerId
+                ) {
+                  return;
+                }
+
+                event.preventDefault();
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+                isVoiceHoldActiveRef.current = false;
+                activeVoicePointerIdRef.current = null;
+                stopVoiceInput();
+              }}
+              onPointerCancel={(event) => {
+                if (activeVoicePointerIdRef.current !== event.pointerId) {
+                  return;
+                }
+
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+                isVoiceHoldActiveRef.current = false;
+                activeVoicePointerIdRef.current = null;
+                stopVoiceInput();
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+              }}
               aria-label={
-                isRecording ? "Stop voice input" : "Start voice input"
+                isRecording
+                  ? "Release to stop voice input"
+                  : "Hold for voice input"
               }
               disabled={isSending}
-              title={isRecording ? "Stop voice input" : "Start voice input"}
+              title={
+                isRecording
+                  ? "Release to stop voice input"
+                  : "Hold for voice input"
+              }
             >
               <svg
                 viewBox="0 0 24 24"
@@ -4915,7 +5249,10 @@ function ChatHistoryPage({ selectedProfile }: ContextPageProps) {
 
 function NewsPage({ selectedProfile }: ContextPageProps) {
   const [newsItems, setNewsItems] = useState<SavedNewsItem[]>([]);
+  const defaultNewsTimePeriodFilter: ChatHistoryTimePeriod = "last_week";
   const [searchTerm, setSearchTerm] = useState("");
+  const [timePeriodFilter, setTimePeriodFilter] =
+    useState<ChatHistoryTimePeriod>(defaultNewsTimePeriodFilter);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
@@ -4929,16 +5266,6 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [profileErrorCount, setProfileErrorCount] = useState(0);
   const itemsPerPage = 10;
-
-  const activeProfileTagIds = useMemo(() => {
-    if (!selectedProfile || !Array.isArray(selectedProfile.tagIds)) {
-      return [];
-    }
-
-    return selectedProfile.tagIds.filter(
-      (entry) => Number.isInteger(entry) && entry > 0,
-    );
-  }, [selectedProfile]);
 
   async function loadProfileErrorCount() {
     try {
@@ -4975,7 +5302,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
     try {
       const loadedNews = await listNews(
         sourceId,
-        activeProfileTagIds,
+        [],
         actionTraceId,
       );
       setNewsItems(loadedNews);
@@ -5010,7 +5337,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
 
     void loadNews();
     void loadProfileErrorCount();
-  }, [selectedProfile?.id, activeProfileTagIds.join(",")]);
+  }, [selectedProfile?.id]);
 
   useEffect(() => {
     if (!selectedProfile) {
@@ -5038,12 +5365,12 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
     return () => {
       window.clearInterval(intervalHandle);
     };
-  }, [selectedProfile?.id, autoRefreshEnabled, activeProfileTagIds.join(",")]);
+  }, [selectedProfile?.id, autoRefreshEnabled]);
 
   // Reset page when search or filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, showFavoritesOnly]);
+  }, [searchTerm, showFavoritesOnly, timePeriodFilter]);
 
   const filteredAndSortedNews = useMemo(() => {
     const queryTerms = searchTerm
@@ -5054,6 +5381,10 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
 
     let filtered = newsItems.filter((item) => {
       if (showFavoritesOnly && !item.favorite) {
+        return false;
+      }
+
+      if (!isNewsItemInTimePeriod(item.timestamp, timePeriodFilter)) {
         return false;
       }
 
@@ -5075,7 +5406,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
     });
 
     return filtered;
-  }, [newsItems, searchTerm, showFavoritesOnly, sortOrder]);
+  }, [newsItems, searchTerm, showFavoritesOnly, sortOrder, timePeriodFilter]);
 
   // Paginate the filtered and sorted news
   const totalPages = Math.ceil(filteredAndSortedNews.length / itemsPerPage);
@@ -5242,6 +5573,22 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
             <option value="oldest">Oldest first</option>
           </select>
         </label>
+        <label className="field time-frame-field">
+          <span>Time Period</span>
+          <select
+            value={timePeriodFilter}
+            onChange={(event) => {
+              setTimePeriodFilter(event.target.value as ChatHistoryTimePeriod);
+            }}
+            aria-label="Filter news by time period"
+          >
+            {CHAT_HISTORY_TIME_PERIOD_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="news-filter-actions">
           <FavoriteStarButton
             isActive={showFavoritesOnly}
@@ -5262,6 +5609,7 @@ function NewsPage({ selectedProfile }: ContextPageProps) {
             onClick={() => {
               setSearchTerm("");
               setSortOrder("latest");
+              setTimePeriodFilter(defaultNewsTimePeriodFilter);
               setShowFavoritesOnly(false);
             }}
             title="Reset all filters to defaults"

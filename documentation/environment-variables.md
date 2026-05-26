@@ -21,8 +21,9 @@
 | `PGUSER`                             | Postgres username                                                                                                          | Any valid username      | Unset                                         |
 | `PGPASSWORD`                         | Postgres password                                                                                                          | Any valid password      | Unset                                         |
 | `PGSSLMODE`                          | Controls SSL usage for Postgres connections                                                                                | `disable`, `require`    | `disable`                                     |
-| `SCRAPE_WEBHOOK_URL`                 | Scrape webhook endpoint URL used by backend route `POST /api/news/profile/scrape`                                          | Valid HTTP/HTTPS URL    | Unset (trigger route returns `503`)           |
-| `N8N_WORKFLOW_URL`                   | Legacy alias for `SCRAPE_WEBHOOK_URL`                                                                                      | Valid HTTP/HTTPS URL    | Unset                                         |
+| `SCRAPE_WEB_WEBHOOK_URL`             | Preferred scrape webhook endpoint URL used by backend route `POST /api/news/profile/scrape`                               | Valid HTTP/HTTPS URL    | Unset (fallback to `SCRAPE_WEBHOOK_URL`)      |
+| `SCRAPE_WEBHOOK_URL`                 | Scrape webhook endpoint URL used by scrape routes when `SCRAPE_WEB_WEBHOOK_URL` is not set                                | Valid HTTP/HTTPS URL    | Unset (trigger route returns `503`)           |
+| `N8N_WORKFLOW_URL`                   | Legacy alias for scrape routes when both `SCRAPE_WEB_WEBHOOK_URL` and `SCRAPE_WEBHOOK_URL` are not set                   | Valid HTTP/HTTPS URL    | Unset                                         |
 | `BASIC_AUTH_USER`                    | Basic auth username used when calling the scrape webhook                                                                   | Any non-empty string    | Unset (trigger route returns `503`)           |
 | `BASIC_AUTH_PWD`                     | Basic auth password used when calling the scrape webhook                                                                   | Any non-empty string    | Unset (trigger route returns `503`)           |
 | `SCRAPE_CHATBOT_WEBHOOK_URL`         | Chatbot webhook endpoint URL used by backend route `POST /api/chats`                                                       | Valid HTTP/HTTPS URL    | Unset (chat route returns `503`)              |
@@ -54,13 +55,13 @@
 - If `NEWS_SCRAPER_ENV_FILE` points to a file, that file is loaded directly.
 - Loaded external values fill missing keys, while explicitly provided process environment values remain authoritative.
 - `server/src/config.mjs` reads `PROFILE_STORE`, `PORT`, and the Postgres variables to configure the API process.
-- `server/src/config.mjs` also reads scrape webhook settings (`SCRAPE_WEBHOOK_URL`, `N8N_WORKFLOW_URL`, `BASIC_AUTH_USER`, `BASIC_AUTH_PWD`).
+- `server/src/config.mjs` also reads scrape webhook settings (`SCRAPE_WEB_WEBHOOK_URL`, `SCRAPE_WEBHOOK_URL`, `N8N_WORKFLOW_URL`, `BASIC_AUTH_USER`, `BASIC_AUTH_PWD`).
 - `server/src/config.mjs` also reads chatbot webhook settings (`SCRAPE_CHATBOT_WEBHOOK_URL`, `CHATBOT_WEBHOOK_URL`, `CHATBOT_BASIC_AUTH_USER`, `CHATBOT_BASIC_AUTH_PWD`).
 - `src/api/profiles.ts` sends `x-app-environment` (`production` or `test`) with each API request.
-- `server/src/config.mjs` resolves environment-aware scrape webhook settings from the selected `*.prod.env` / `*.test.env` file using original variable names (`SCRAPE_WEBHOOK_URL`, `N8N_WORKFLOW_URL`, `BASIC_AUTH_USER`, `BASIC_AUTH_PWD`).
+- `server/src/config.mjs` resolves environment-aware scrape webhook settings from the selected `*.prod.env` / `*.test.env` file using precedence: `SCRAPE_WEB_WEBHOOK_URL`, then `SCRAPE_WEBHOOK_URL`, then `N8N_WORKFLOW_URL`.
 - `server/src/repository.mjs` switches between the in-memory repository and the Postgres repository.
 - `server/src/postgres-repository.mjs` passes `DATABASE_URL` or the `PG*` values to the `pg` connection pool.
-- `server/src/app.mjs` exposes `POST /api/news/profile/scrape`, validates `profileId`, builds the combined `scrape.profile` and `scrape.informationChannel` payload, propagates `traceparent`, and forwards to `SCRAPE_WEBHOOK_URL` using configured basic auth credentials.
+- `server/src/app.mjs` exposes `POST /api/news/profile/scrape`, validates `profileId`, builds the combined `scrape.profile` and `scrape.informationChannel` payload, propagates `traceparent`, and forwards to the resolved scrape webhook URL using configured basic auth credentials.
 - `server/src/app.mjs` route `POST /api/news/profile/scrape` chooses webhook URL and credentials using the incoming `x-app-environment` request header.
 - `server/src/app.mjs` route `POST /api/chats` chooses chatbot webhook URL and credentials using the incoming `x-app-environment` request header, creates an entry in `chats_t`, and updates status/response from webhook output.
 - `server/src/index.mjs` starts the backend OTEL SDK when an OTLP target is configured and OTEL is not disabled.

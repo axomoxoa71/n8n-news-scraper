@@ -1,11 +1,11 @@
 [
     {
         "name": "Top 10 News (Today)",
-        "prompt": "Provide the top 10 news for selected profile from today, including a title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT any only provide from today and not older"
+        "prompt": "Provide the top 10 news for selected profile from today, including id,title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT and only provide from today and not older"
     },
    {
         "name": "Top 10 News (Weekly)",
-        "prompt": "Provide the top 10 news for selected profile from last week, including a title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT any only provide last 7 days and not older"
+        "prompt": "Provide the top 10 news for selected profile from last week, including id,title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT and only provide last 7 days and not older"
     },
 
     {
@@ -14,10 +14,10 @@
     },
     {
         "name": "Top 10 Negative News(Today)",
-        "prompt": "Provide the top 10 negative news for selected profile from today, including a title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT any only provide from today and not older"
+        "prompt": "Provide the top 10 negative news for selected profile from today, including id,title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT and only provide from today and not older"
     },
     {
         "name": "Top 10 Negative News(Weekly)",
-        "prompt": "Provide the top 10 negative news for selected profile for last week, including a title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT any only provide last 7 days and not older"
+        "prompt": "Provide the top 10 negative news for selected profile for last week, including id,title,summary, url, origin and published date for each story. Show it as markdown table. Be STRICT and only provide last 7 days and not older"
     }
 ]

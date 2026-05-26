@@ -6,6 +6,8 @@ CREATE TABLE news_t (
   summary      TEXT         NOT NULL,
   sentiment    TEXT,
   image        TEXT,
+  image_url    TEXT,
+  author       TEXT,
   origin       TEXT,
   url          TEXT         NOT NULL,
   published_ts TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -1,0 +1,224 @@
+{
+  "name": "EXAM_generic_error_handler",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Error Handler\n\n",
+        "height": 304,
+        "width": 976,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "5a9d5d4e-5eb7-4872-bc42-d2023e195709",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        144,
+        64
+      ],
+      "id": "c948b1eb-3297-411b-a161-0c6109d71592",
+      "name": "general_error_handler"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "mZ2ZpXpWkcJrpsKS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/mZ2ZpXpWkcJrpsKS",
+          "cachedResultName": "EXAM_sub_error_logger"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "externalRefId": "={{ $json.execution.id }}",
+            "executionId": "={{ $json.execution.id }}",
+            "workflowId": "={{ $json.workflow.id }}",
+            "workflowName": "={{ $json.workflow.name }}",
+            "nodeType": "={{ $json.execution.executionContext.triggerNode.type }}",
+            "nodeName": "={{ $json.execution.executionContext.triggerNode.name }}",
+            "errorStack": "={{ $json.execution.error.stack }}",
+            "errorDetails": "={{ $json.execution.error.message }}",
+            "json": "={{ $json }}",
+            "parentExecutionId": "{{ $json.execution.id }}",
+            "errorMessage": "=Unhandeled Error: {{ $json.execution.error.message }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "externalRefId",
+              "displayName": "externalRefId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "externalRefType",
+              "displayName": "externalRefType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "traceId",
+              "displayName": "traceId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "executionId",
+              "displayName": "executionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "errorMessage",
+              "displayName": "errorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "errorDetails",
+              "displayName": "errorDetails",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "errorStack",
+              "displayName": "errorStack",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "nodeName",
+              "displayName": "nodeName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "nodeType",
+              "displayName": "nodeType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "workflowName",
+              "displayName": "workflowName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "workflowId",
+              "displayName": "workflowId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "json",
+              "displayName": "json",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object",
+              "removed": false
+            },
+            {
+              "id": "parentExecutionId",
+              "displayName": "parentExecutionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        400,
+        64
+      ],
+      "id": "e50d50d6-132f-4596-ab1d-1f74b0aee395",
+      "name": "call_sub_flow_error_logger"
+    }
+  ],
+  "connections": {
+    "general_error_handler": {
+      "main": [
+        [
+          {
+            "node": "call_sub_flow_error_logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 0,
+  "meta": null
+}

@@ -84,7 +84,7 @@ Inbound:
 Outbound:
 
 - API client (`src/api/profiles.ts`) generates a `traceparent` for each browser request.
-- Backend forwards request trace context to downstream webhook calls on `POST /api/news/profile/scrape`.
+- Backend forwards request trace context to downstream n8n webhook calls on scrape and chatbot endpoints.
 - Web logger keeps the generated request `trace_id` in client-side logs and links API error logs using backend `traceId` when returned.
 
 UI correlation:
@@ -98,6 +98,9 @@ Unhandled API exceptions are logged as `profiles_api_unhandled_error` with trace
 
 Downstream scrape webhook failures are logged as:
 
+- `n8n_webhook_request_started` before each outbound call to n8n.
+- `n8n_webhook_request_completed` after each outbound call to n8n with status and duration.
+- `n8n_webhook_request_failed` when network/runtime exceptions occur while calling n8n.
 - `scrape_webhook_trigger_failed` when the upstream response status is non-2xx.
 - `scrape_webhook_trigger_error` when network/runtime exceptions occur.
 
