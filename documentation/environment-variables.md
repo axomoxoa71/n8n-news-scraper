@@ -30,6 +30,7 @@
 | `CHATBOT_WEBHOOK_URL`                | Alias for `SCRAPE_CHATBOT_WEBHOOK_URL`                                                                                     | Valid HTTP/HTTPS URL    | Unset                                         |
 | `CHATBOT_BASIC_AUTH_USER`            | Basic auth username used when calling the chatbot webhook                                                                  | Any non-empty string    | Falls back to `BASIC_AUTH_USER`               |
 | `CHATBOT_BASIC_AUTH_PWD`             | Basic auth password used when calling the chatbot webhook                                                                  | Any non-empty string    | Falls back to `BASIC_AUTH_PWD`                |
+| `CHATBOT_WEBHOOK_TIMEOUT_MS`         | Timeout for chatbot webhook calls in milliseconds (used by `POST /api/chats` and `POST /api/chats/dispatch`)            | Integer `1000`-`300000` | `60000`                                       |
 | `OTEL_SDK_DISABLED`                  | Disables backend OpenTelemetry SDK startup when set to true                                                                | `true`, `false`         | `false` when OTLP target is configured        |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full OTLP HTTP traces endpoint used directly by the backend OTEL exporter                                                  | Any valid OTLP URL      | Unset                                         |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`        | Base OTLP endpoint used by the backend OTEL exporter (`/v1/traces` is appended automatically)                              | Any valid OTLP URL      | Unset                                         |
@@ -56,7 +57,7 @@
 - Loaded external values fill missing keys, while explicitly provided process environment values remain authoritative.
 - `server/src/config.mjs` reads `PROFILE_STORE`, `PORT`, and the Postgres variables to configure the API process.
 - `server/src/config.mjs` also reads scrape webhook settings (`SCRAPE_WEB_WEBHOOK_URL`, `SCRAPE_WEBHOOK_URL`, `N8N_WORKFLOW_URL`, `BASIC_AUTH_USER`, `BASIC_AUTH_PWD`).
-- `server/src/config.mjs` also reads chatbot webhook settings (`SCRAPE_CHATBOT_WEBHOOK_URL`, `CHATBOT_WEBHOOK_URL`, `CHATBOT_BASIC_AUTH_USER`, `CHATBOT_BASIC_AUTH_PWD`).
+- `server/src/config.mjs` also reads chatbot webhook settings (`SCRAPE_CHATBOT_WEBHOOK_URL`, `CHATBOT_WEBHOOK_URL`, `CHATBOT_BASIC_AUTH_USER`, `CHATBOT_BASIC_AUTH_PWD`, `CHATBOT_WEBHOOK_TIMEOUT_MS`).
 - `src/api/profiles.ts` sends `x-app-environment` (`production` or `test`) with each API request.
 - `server/src/config.mjs` resolves environment-aware scrape webhook settings from the selected `*.prod.env` / `*.test.env` file using precedence: `SCRAPE_WEB_WEBHOOK_URL`, then `SCRAPE_WEBHOOK_URL`, then `N8N_WORKFLOW_URL`.
 - `server/src/repository.mjs` switches between the in-memory repository and the Postgres repository.

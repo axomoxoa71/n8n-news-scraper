@@ -50,7 +50,8 @@
                     ]
                 }
             ]
-        }
+        },
+        "_seedNewsCount": 0
     },
     {
         "name": "Agent Ecosystem",
@@ -93,7 +94,8 @@
                 "feedUrl": "https://simonwillison.net/atom/everything/",
                 "description": "Simon Willison RSS"
             }
-        ]
+        ],
+        "_seedNewsCount": 3
     },
     {
         "name": "Model Releases",
@@ -136,7 +138,8 @@
                 "feedUrl": "https://ai.googleblog.com/feeds/posts/default",
                 "description": "Google AI Blog RSS"
             }
-        ]
+        ],
+        "_seedNewsCount": 3
     },
     {
         "name": "Error Test Profile",
@@ -229,6 +232,7 @@
                     "seedType": "switching"
                 }
             }
-        ]
+        ],
+        "_seedNewsCount": 3
     }
 ]

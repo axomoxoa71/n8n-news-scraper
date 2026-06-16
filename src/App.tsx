@@ -45,6 +45,18 @@ import {
   setApiEnvironment as setChatbotApiEnvironment,
 } from "./api/chatbot";
 import type { ChatHistoryMessage, ChatQuickReply } from "./chatbot";
+import {
+  APP_ENVIRONMENT_STORAGE_KEY,
+  CHATBOT_VOICE_LANGUAGE_OPTIONS,
+  CHAT_HISTORY_ROLE_OPTIONS,
+  CHAT_HISTORY_TIME_PERIOD_OPTIONS,
+  getInitialAppEnvironment,
+  isNewsItemInTimePeriod,
+  isSessionEnvironmentSelected,
+  resolveChatbotVoiceLanguage,
+  SESSION_ENVIRONMENT_STORAGE_KEY,
+  type ChatbotVoiceLanguage,
+} from "./app-configuration";
 import { EnglishValidatedForm } from "./components/EnglishValidatedForm";
 import {
   createEmptyRssFeed,
@@ -66,6 +78,7 @@ import {
   type EmailChannel,
   type SlackChannel,
 } from "./profiles";
+import { formatNameWithId } from "./utils/format";
 import aiNewsLogo from "./resources/logo.png";
 import "./App.css";
 
@@ -74,80 +87,6 @@ type NotificationChannelMultiSelectProps = {
   selectedIds: number[];
   onChange: (ids: number[]) => void;
 };
-
-const CHATBOT_VOICE_LANGUAGE_OPTIONS = [
-  { value: "en-US", label: "English" },
-  { value: "de-DE", label: "German" },
-] as const;
-
-const CHAT_HISTORY_TIME_PERIOD_OPTIONS: {
-  value: ChatHistoryTimePeriod;
-  label: string;
-}[] = [
-  { value: "last_hour", label: "Last Hour" },
-  { value: "last_day", label: "Last Day" },
-  { value: "last_week", label: "Last Week" },
-  { value: "last_month", label: "Last Month" },
-  { value: "all", label: "All" },
-];
-
-function isNewsItemInTimePeriod(
-  timestamp: string,
-  timePeriod: ChatHistoryTimePeriod,
-): boolean {
-  if (timePeriod === "all") {
-    return true;
-  }
-
-  const itemTime = new Date(timestamp).getTime();
-  if (Number.isNaN(itemTime)) {
-    return false;
-  }
-
-  const now = Date.now();
-  const windowByTimePeriod: Record<
-    Exclude<ChatHistoryTimePeriod, "all">,
-    number
-  > = {
-    last_hour: 60 * 60 * 1000,
-    last_day: 24 * 60 * 60 * 1000,
-    last_week: 7 * 24 * 60 * 60 * 1000,
-    last_month: 30 * 24 * 60 * 60 * 1000,
-  };
-
-  return itemTime >= now - windowByTimePeriod[timePeriod];
-}
-
-const CHAT_HISTORY_ROLE_OPTIONS: {
-  value: ChatHistoryRoleFilter;
-  label: string;
-}[] = [
-  { value: "all", label: "All" },
-  { value: "user", label: "User" },
-  { value: "assistant", label: "Assistant" },
-];
-
-type ChatbotVoiceLanguage =
-  (typeof CHATBOT_VOICE_LANGUAGE_OPTIONS)[number]["value"];
-
-function resolveChatbotVoiceLanguage(
-  rawLanguage: string | null | undefined,
-): ChatbotVoiceLanguage {
-  const normalizedLanguage =
-    typeof rawLanguage === "string"
-      ? rawLanguage.trim().toLocaleLowerCase()
-      : "";
-
-  if (normalizedLanguage.startsWith("de")) {
-    return "de-DE";
-  }
-
-  return "en-US";
-}
-
-function formatNameWithId(name: string, id: number): string {
-  return `(${id}) ${name}`;
-}
 
 function NotificationChannelMultiSelect({
   channels,
@@ -841,38 +780,6 @@ function TagMultiSelect({
 
 type EditorTab = "source" | "notification" | "tags" | "roles";
 type SourceEditorTab = "urls" | "rss";
-
-const APP_ENVIRONMENT_STORAGE_KEY = "news-scrapper.environment";
-const SESSION_ENVIRONMENT_STORAGE_KEY =
-  "news-scrapper.session.environment-selected";
-
-function parseStoredAppEnvironment(
-  value: string | null,
-): ApiEnvironment | null {
-  if (value === "production" || value === "test") {
-    return value;
-  }
-
-  return null;
-}
-
-function getInitialAppEnvironment(): ApiEnvironment | null {
-  try {
-    return parseStoredAppEnvironment(
-      window.localStorage.getItem(APP_ENVIRONMENT_STORAGE_KEY),
-    );
-  } catch {
-    return null;
-  }
-}
-
-function isSessionEnvironmentSelected(): boolean {
-  try {
-    return sessionStorage.getItem(SESSION_ENVIRONMENT_STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
 
 type ProfileDraft = {
   name: string;

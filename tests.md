@@ -27,8 +27,7 @@
 # Run API unit tests (no server required)
 npm run test:api
 
-# Run seed data integration tests (requires running API + seeded data)
-npm run seed:profiles
+# Run seed data contract tests (self-seeded in-memory test server)
 npm run test:seed
 
 # Run E2E Playwright tests (requires running dev server)

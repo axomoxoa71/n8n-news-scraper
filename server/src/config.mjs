@@ -30,6 +30,43 @@ function toNonEmptyString(value) {
   return normalized ? normalized : undefined;
 }
 
+function toBoundedPositiveInteger(value, fallbackValue, options = {}) {
+  const { min = 1, max = Number.MAX_SAFE_INTEGER } = options;
+
+  if (value === undefined || value === null || value === "") {
+    return fallbackValue;
+  }
+
+  if (typeof value === "number") {
+    if (
+      Number.isInteger(value) &&
+      Number.isFinite(value) &&
+      value >= min &&
+      value <= max
+    ) {
+      return value;
+    }
+
+    return fallbackValue;
+  }
+
+  if (typeof value !== "string") {
+    return fallbackValue;
+  }
+
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return fallbackValue;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    return fallbackValue;
+  }
+
+  return parsed;
+}
+
 function resolveEnvironmentPostgresConfig(env, environmentScopedEnv = {}) {
   const sslMode =
     toNonEmptyString(environmentScopedEnv.PGSSLMODE) ||
@@ -145,6 +182,11 @@ export function loadServerConfig(env = process.env, options = {}) {
     env,
     environmentScopedEnv.test,
   );
+  const chatbotWebhookTimeoutMs = toBoundedPositiveInteger(
+    env.CHATBOT_WEBHOOK_TIMEOUT_MS,
+    60_000,
+    { min: 1_000, max: 300_000 },
+  );
 
   return {
     port: toNumber(env.PORT, 4300),
@@ -164,6 +206,7 @@ export function loadServerConfig(env = process.env, options = {}) {
       production: productionChatbotWebhook,
       test: testChatbotWebhook,
     },
+    chatbotWebhookTimeoutMs,
     postgresByEnvironment: {
       production: productionPostgres,
       test: testPostgres,

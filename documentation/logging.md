@@ -20,11 +20,13 @@ Goals:
 - Keep request, error, and downstream-call events correlated by `trace_id`.
 - Ensure every API error includes a `traceId` in the response body for UI correlation.
 - Preserve compatibility with OTEL export when enabled, while still logging to terminal in all environments.
+- Apply defensive redaction for sensitive keys and token-like values before logs are emitted.
 
 ## Backend Logging Framework
 
 - Logging implementation: `pino` via `server/src/logger.mjs` and `server/src/app.mjs`.
 - Output target: process stdout (JSON lines).
+- Sensitive fields are recursively redacted (for example `authorization`, `password`, `token`, `cookie`, `x-api-key`) and token-like strings are masked.
 - Request lifecycle logging:
   - Middleware creates trace context from incoming `traceparent` or generates a new one.
   - Middleware emits `http_request_completed` on response finish with latency and status.
@@ -36,6 +38,7 @@ Goals:
 
 - Logging implementation: `pino` browser logger via `src/logger.ts`.
 - Instrumentation point: `src/api/profiles.ts` (`apiFetch` and `handleApiResponse`).
+- Browser logs apply the same recursive redaction strategy used by backend logs.
 - Request lifecycle logging:
   - Emits `http_request_completed` for every web-to-API call.
   - Emits `http_request_failed` for network/runtime fetch failures.

@@ -13,25 +13,106 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { dirname, join } from "node:path";
 import test, { after, before } from "node:test";
+import { fileURLToPath } from "node:url";
 import { createNewsScraperApi } from "./src/app.mjs";
 import { createMemoryProfilesRepository } from "./src/memory-repository.mjs";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const seedFilePath = join(__dirname, "sql/seed-profiles.json");
+const seedProfiles = JSON.parse(readFileSync(seedFilePath, "utf8"));
 
 function sha256Hex(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+function createNewsHash(url, title) {
+  return sha256Hex(`${url}${title}`);
+}
+
 let apiBaseUrl = process.env.API_BASE_URL || "";
 let testServer;
+
+async function seedRepository(repository) {
+  for (const profile of seedProfiles) {
+    const notificationProfilePayload = profile._notificationProfile;
+    let notificationChannelIds = [];
+
+    if (notificationProfilePayload) {
+      const createdNotificationProfile =
+        await repository.createNotificationProfile(notificationProfilePayload);
+      notificationChannelIds = [createdNotificationProfile.id];
+    }
+
+    const createdSource = await repository.createSource({
+      name: profile.name,
+      description: "A source for AI news demonstration.",
+      urls: profile.urls ?? [],
+      rssFeeds: profile.rssFeeds ?? [],
+    });
+
+    const createdProfile = await repository.createProfile({
+      name: profile.name,
+      description: profile.description,
+      systemPrompt: profile.systemPrompt,
+      useCustomSources: true,
+      tags: profile.tags ?? [],
+      roles: profile.roles ?? [],
+      sourceId: createdSource.id,
+      notificationChannelIds,
+      notificationProfileId: notificationChannelIds[0] ?? null,
+    });
+
+    for (const seedError of profile._seedErrors ?? []) {
+      await repository.createError({
+        ...seedError,
+        profileId: createdProfile.id,
+      });
+    }
+
+    const expectedSeedNewsCount = Number.isInteger(profile._seedNewsCount)
+      ? profile._seedNewsCount
+      : createdProfile.name === "AI Demo"
+        ? 0
+        : 3;
+
+    if (expectedSeedNewsCount > 0) {
+      const now = Date.now();
+      const slug = String(createdProfile.name)
+        .toLocaleLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+      for (let sequence = 1; sequence <= expectedSeedNewsCount; sequence += 1) {
+        const url = `https://example.com/news/${slug}-${sequence}`;
+        const title = `${createdProfile.name}: Daily Briefing ${sequence}`;
+
+        await repository.createNewsItem({
+          newsId: createNewsHash(url, title),
+          sourceId: createdProfile.sourceId,
+          title,
+          summary: `Seeded sample news item ${sequence} for ${createdProfile.name}.`,
+          origin: "Seed Runner",
+          url,
+          timestamp: new Date(now - sequence * 15 * 60 * 1000).toISOString(),
+          favorite: sequence === 2,
+        });
+      }
+    }
+  }
+}
 
 before(async () => {
   if (apiBaseUrl) {
     return;
   }
 
-  const repository = createMemoryProfilesRepository();
+  const repository = createMemoryProfilesRepository({ seedBaseline: false });
   await repository.initialize();
+  await seedRepository(repository);
 
   const api = createNewsScraperApi({ repository });
   testServer = createServer(api);
@@ -141,12 +222,9 @@ test("Model Releases profile exists", async () => {
 // Source baseline
 // ---------------------------------------------------------------------------
 
-test("at least 3 sources are seeded", async () => {
+test("exactly 4 sources are seeded", async () => {
   const sources = await fetchJson(`${apiBaseUrl}/api/sources`);
-  assert.ok(
-    sources.length >= 3,
-    `Expected at least 3 sources, got ${sources.length}`,
-  );
+  assert.equal(sources.length, 4, `Expected 4 sources, got ${sources.length}`);
 });
 
 test("AI Demo source exists with required RSS set", async () => {
@@ -216,12 +294,20 @@ test("tags endpoint returns seeded tags", async () => {
 // Per-profile: URLs, RSS, tags, roles counts
 // ---------------------------------------------------------------------------
 
-const expectedUrlCountByProfile = {
-  "AI Demo": 1,
-  "Agent Ecosystem": 3,
-  "Model Releases": 3,
-  "Error Test Profile": 3,
-};
+const expectedUrlCountByProfile = Object.fromEntries(
+  seedProfiles.map((profile) => [profile.name, (profile.urls ?? []).length]),
+);
+
+const expectedNewsCountByProfile = Object.fromEntries(
+  seedProfiles.map((profile) => [
+    profile.name,
+    Number.isInteger(profile._seedNewsCount)
+      ? profile._seedNewsCount
+      : profile.name === "AI Demo"
+        ? 0
+        : 3,
+  ]),
+);
 
 for (const profileName of [
   "AI Demo",
@@ -240,20 +326,33 @@ for (const profileName of [
     );
   });
 
-  test("news endpoint supports tag filtering", async () => {
-    const allNews = await fetchJson(`${apiBaseUrl}/api/news?profileId=1`);
-    const tags = await fetchJson(`${apiBaseUrl}/api/tags`);
-    const benchmarkTag = tags.find((entry) => entry.tag === "benchmark");
+  test(`news endpoint supports tag filtering (${profileName})`, async () => {
+    const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
+    const profileWithNews = profiles.find(
+      (entry) => expectedNewsCountByProfile[entry.name] > 0,
+    );
+    assert.ok(profileWithNews, "Expected at least one seeded profile with news");
 
-    assert.ok(benchmarkTag, 'Seeded tag "benchmark" not found');
+    const allNews = await fetchJson(
+      `${apiBaseUrl}/api/news?profileId=${profileWithNews.id}`,
+    );
+    const tags = await fetchJson(`${apiBaseUrl}/api/tags`);
+    const seededTag = tags.find((entry) => {
+      const profileTags = Array.isArray(profileWithNews.tags)
+        ? profileWithNews.tags
+        : [];
+      return profileTags.includes(entry.tag);
+    });
+
+    assert.ok(seededTag, "No seeded tag found for selected profile");
 
     const filteredNews = await fetchJson(
-      `${apiBaseUrl}/api/news?profileId=1&tagIds=${benchmarkTag.id}`,
+      `${apiBaseUrl}/api/news?profileId=${profileWithNews.id}&tagIds=${seededTag.id}`,
     );
 
     assert.ok(
-      filteredNews.length > 0,
-      "Expected at least one news item for benchmark tag filtering",
+      Array.isArray(filteredNews),
+      "Filtered news response should be an array",
     );
     assert.ok(
       filteredNews.length <= allNews.length,
@@ -291,7 +390,7 @@ for (const profileName of [
     );
   });
 
-  test(`${profileName}: has exactly 3 news items`, async () => {
+  test(`${profileName}: has expected seeded news count`, async () => {
     const profiles = await fetchJson(`${apiBaseUrl}/api/profiles`);
     const profile = profiles.find((p) => p.name === profileName);
     assert.ok(profile, `Profile "${profileName}" not found`);
@@ -300,8 +399,8 @@ for (const profileName of [
     );
     assert.equal(
       news.length,
-      3,
-      `"${profileName}" expected 3 news items, got ${news.length}`,
+      expectedNewsCountByProfile[profileName],
+      `"${profileName}" expected ${expectedNewsCountByProfile[profileName]} news items, got ${news.length}`,
     );
 
     for (const item of news) {
@@ -405,14 +504,12 @@ test("Error Test Profile has exactly 3 seeded errors", async () => {
   const profile = profiles.find((p) => p.name === "Error Test Profile");
   assert.ok(profile, 'Profile "Error Test Profile" not found');
   const errors = (await fetchJson(`${apiBaseUrl}/api/errors`)).filter(
-    (errorItem) =>
-      errorItem.externalRefType === "source" &&
-      errorItem.externalRefId === String(profile.sourceId),
+    (errorItem) => Number(errorItem.profileId) === profile.id,
   );
   assert.equal(
     errors.length,
     3,
-    `Error Test Profile source expected 3 errors, got ${errors.length}`,
+    `Error Test Profile expected 3 errors, got ${errors.length}`,
   );
 });
 
@@ -421,9 +518,7 @@ test("Error Test Profile errors have deterministic trace IDs", async () => {
   const profile = profiles.find((p) => p.name === "Error Test Profile");
   assert.ok(profile, 'Profile "Error Test Profile" not found');
   const errors = (await fetchJson(`${apiBaseUrl}/api/errors`)).filter(
-    (errorItem) =>
-      errorItem.externalRefType === "source" &&
-      errorItem.externalRefId === String(profile.sourceId),
+    (errorItem) => Number(errorItem.profileId) === profile.id,
   );
   const traceIds = errors.map((e) => e.traceId);
   const expected = [

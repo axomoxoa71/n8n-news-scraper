@@ -88,16 +88,14 @@ graph TD
 - Each profile includes:
   - Required name
   - Optional description
-  - `useCustomSources` flag to switch between AI-recommended and user-defined sources
+  - `sourceId` reference to a managed source entity
   - Optional tag chips with per-profile uniqueness enforcement
   - Optional role chips (for example: Engineer, Architect, CIO, CTO) with per-profile uniqueness enforcement
-  - URL source entries with required URL when custom mode is enabled
-  - RSS feed entries with required feed URL when custom mode is enabled
+  - Notification channel linkage through `notificationChannelIds`
 - Add profile uses a dialog-based workflow.
 - Existing profiles are listed in compact rows with name and edit/delete actions.
 - URLS, RSS, TAGS, and ROLES editing are separated through tabs.
-- URLS and RSS tabs include a shared `Custom` checkbox; when unchecked, source editors are hidden and AI-recommended sources are used.
-- Disabling Custom mode after entering URL/RSS content asks for explicit confirmation and clears existing custom source entries if confirmed.
+- Source selection links profiles to shared source definitions managed in source CRUD flows.
 
 ### Profile Context Selector
 
@@ -156,13 +154,13 @@ graph TD
 - File: `server/sql/init.sql`
 - Creates:
   - `profiles_t`
+  - `sources_t`
   - `profile_roles_t`
   - `profile_tags_t`
-  - `profile_urls_t`
-  - `rss_feeds_t`
+  - `source_urls_t`
+  - `source_rss_feeds_t`
   - `news_t`
   - `chats_t`
-- Stores custom source mode in `profiles_t.use_custom_sources`.
 - Stores the latest full normalized profile payload in `profiles_t.json` so row-level profile metadata keeps a JSON snapshot alongside the relational child tables.
 - During Postgres schema initialization, existing rows with a null `profiles_t.json` value are backfilled from the relational tag, URL, and RSS tables.
 - Stores the latest normalized notification channel payload in `notification_channels_t.json` so each email/slack channel row keeps a JSON snapshot of channel configuration.
@@ -180,8 +178,8 @@ graph TD
 3. Route selection determines which page component is rendered.
 4. Root app state loads profiles from `/api/profiles` and exposes an active profile selector.
 5. The Profiles page opens add flow in a dialog, and uses inline editing for existing rows.
-6. Create and update actions send validated payloads with custom source mode, tags, roles, URL, and RSS arrays to the API.
-7. If custom mode is disabled, URL and RSS arrays are stored empty and AI-recommended sources are assumed.
+6. Create and update actions send validated payloads with `sourceId`, tags, roles, and notification channel linkage.
+7. Source CRUD is handled through source endpoints, and profiles reference sources by id.
 8. The repository stores profile rows, tag rows, URL rows, and RSS feed rows either in memory or in Postgres.
 9. On every Postgres profile create and update, the repository also writes the complete normalized profile payload into `profiles_t.json`.
 10. On every Postgres notification profile create and update, the repository writes each normalized channel payload into `notification_channels_t.json`.

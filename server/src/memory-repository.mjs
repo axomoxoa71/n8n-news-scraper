@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
-export function createMemoryProfilesRepository() {
+export function createMemoryProfilesRepository(options = {}) {
+  const seedBaseline = options.seedBaseline !== false;
   let nextProfileId = 1;
   let nextSourceId = 1;
   let nextNotificationProfileId = 1;
@@ -67,19 +68,6 @@ export function createMemoryProfilesRepository() {
 
   return {
     async initialize() {
-      const testChannel = {
-        id: nextNotificationProfileId++,
-        name: "AI Demo",
-        description: "AI Demo notification channel for development.",
-        channels: [
-          {
-            id: 1,
-            emailAddresses: ["robert.bernhard71@gmail.com"],
-          },
-        ],
-      };
-      notificationProfiles.push(testChannel);
-
       tags.push(
         { id: 1, category: "news", tag: "agents" },
         { id: 2, category: "news", tag: "benchmark" },
@@ -94,6 +82,23 @@ export function createMemoryProfilesRepository() {
         { id: 11, category: "news", tag: "ui-test" },
         { id: 12, category: "news", tag: "tooling" },
       );
+
+      if (!seedBaseline) {
+        return undefined;
+      }
+
+      const testChannel = {
+        id: nextNotificationProfileId++,
+        name: "AI Demo",
+        description: "AI Demo notification channel for development.",
+        channels: [
+          {
+            id: 1,
+            emailAddresses: ["robert.bernhard71@gmail.com"],
+          },
+        ],
+      };
+      notificationProfiles.push(testChannel);
 
       const seededProfiles = [
         {
@@ -306,37 +311,6 @@ export function createMemoryProfilesRepository() {
       sources.push(...seededSources);
 
       const seededNewsItems = [
-        {
-          profileName: "AI Demo",
-          items: [
-            {
-              title:
-                "Claude 4 demonstrates advanced reasoning in benchmark tests",
-              summary:
-                "Anthropic's latest Claude model shows significant improvements in complex reasoning, coding, and mathematical problem-solving tasks.",
-              origin: "MIT Technology Review",
-              url: "https://www.technologyreview.com/news/claude-4-reasoning",
-              favorite: true,
-            },
-            {
-              title: "Open-source LLM fine-tuning framework gains adoption",
-              summary:
-                "New tools make it easier for enterprises to customize open-source language models for domain-specific applications.",
-              origin: "Unite AI",
-              url: "https://www.unite.ai/open-source-llm-fine-tuning",
-              favorite: false,
-            },
-            {
-              title:
-                "Context window expansion enables longer document analysis",
-              summary:
-                "Latest LLM models support extended context windows for large research and code corpora.",
-              origin: "AI Universe Explorer",
-              url: "https://aiuniverseexplorer.com/context-window-expansion",
-              favorite: false,
-            },
-          ],
-        },
         {
           profileName: "Error Test Profile",
           items: [

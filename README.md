@@ -24,7 +24,7 @@ The current implementation uses a Vite frontend, an Express-based API, and Playw
 ## Key Features
 
 - Dark-themed entry page with AI News branding/logo
-- Route-based navigation (`/`, `/profiles`, `/chatbot`, `/news`)
+- Route-based navigation (`/`, `/profiles`, `/chatbot`, `/chatbot/history`, `/news`, `/errors`)
 - Multi-profile editor with required name, reusable tags, repeated source URLs, RSS feed settings, and saved profile actions
 - API layer for profile CRUD operations at `/api/profiles`
 - API layer for profile-scoped news retrieval and favorite toggling at `/api/news`
@@ -89,20 +89,30 @@ npm run test:e2e
 graph TD
 	Browser[Browser] --> Main[main.tsx]
 	Main --> Router[BrowserRouter]
-	Router --> App[App Shell]
-	App --> ApiClient[/api fetch client/]
-	ApiClient --> Api[Express API]
-	Api --> Repo[Profiles Repository]
-	Repo --> Postgres[(Postgres)]
+	Router --> ErrorBoundary[ErrorBoundary]
+	ErrorBoundary --> App[App Shell]
+	App --> ProfilesClient[src/api/profiles.ts]
+	App --> ChatbotClient[src/api/chatbot.ts]
+	ProfilesClient --> Api[Express API]
+	ChatbotClient --> Api
+	Api --> RepoFactory[Repository Factory]
+	RepoFactory --> MemoryRepo[In-memory repository]
+	RepoFactory --> PostgresRepo[Postgres repository]
+	PostgresRepo --> Postgres[(Postgres)]
 
 	App --> Home[Home Page]
 	App --> Profiles[Profiles Page]
 	App --> Chatbot[Chatbot Page]
+	App --> ChatHistory[Chat History Page]
 	App --> News[News Page]
+	App --> Errors[Errors Page]
 
 	Home --> Logo[src/resources/logo.png]
-	News --> NewsApi[/api/news]
+	News --> NewsApi["GET /api/news?sourceId={id}"]
 	NewsApi --> NewsTable[(news_t)]
+	Chatbot --> ChatDispatch["POST /api/chats/dispatch"]
+	ChatHistory --> ChatHistoryApi["GET /api/profiles/{id}/chat-history"]
+	Errors --> ErrorsApi["GET /api/errors"]
 
 	Playwright[Playwright Tests] --> DevStack[Vite + API Dev Stack]
 	DevStack --> App

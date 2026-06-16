@@ -13,10 +13,13 @@
 
 This project uses a default seed baseline intended for testing and local development.
 
+`server/sql/seed-profiles.json` is the canonical API seed contract. The API seed script and seed-data tests must stay aligned with this file.
+
 By default, seed data provides 4 profiles (including a dedicated `Error Test Profile`) linked to 4 sources.
 Every source has 3 RSS feeds, while URL counts follow one explicit exception: `AI Demo` has exactly 1 instruction-defined URL and each other source has 3 URLs.
 Each profile links to one source.
 For `error_t`, only `Error Test Profile` is seeded, with 3 deterministic error rows.
+News follows one explicit rule: `AI Demo` has 0 seeded news rows, and every other seeded profile has exactly 3 seeded news rows.
 Only add extra records when a specific test scenario needs additional or specialized data.
 
 ## Default Baseline
@@ -41,6 +44,7 @@ The default SQL seed baseline creates 4 profiles (including `Error Test Profile`
   - `news_t.news_id` is generated deterministically as `SHA-256(link + title)` during insert.
 - `server/sql/seed-profiles.json`
   - API seeding payload containing 4 profile definitions: `AI Demo`, `Agent Ecosystem`, `Model Releases`, and `Error Test Profile`.
+  - Includes `_seedNewsCount` per profile to define deterministic seeded news counts (`AI Demo`: `0`, others: `3`).
   - `AI Demo` is seeded with the instruction-defined AI source set, including `https://ai.meta.com/blog/`, `https://openai.com/news/rss.xml`, `https://huggingface.co/blog/feed.xml`, and `https://github.com/axomoxoa71/news-scrapper/blob/main/news/ai-news.opml`.
   - `Error Test Profile` includes 3 deterministic seeded error records via API seeding.
 - `server/sql/cleanup.sql`

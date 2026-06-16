@@ -185,6 +185,7 @@ logEvent({
     .test.basicAuthPassword
     ? "(set)"
     : "(not set)",
+  chatbot_webhook_timeout_ms: config.chatbotWebhookTimeoutMs,
   profile_store: config.profileStore,
   profile_store_production:
     config.postgresByEnvironment.production.connectionString ||
@@ -345,6 +346,7 @@ const app = createNewsScraperApi({
   chatbotWebhookBasicAuthUser: config.chatbotWebhookBasicAuthUser,
   chatbotWebhookBasicAuthPassword: config.chatbotWebhookBasicAuthPassword,
   chatbotWebhookByEnvironment: config.chatbotWebhookByEnvironment,
+  chatbotWebhookTimeoutMs: config.chatbotWebhookTimeoutMs,
 });
 const server = createServer(app);
 

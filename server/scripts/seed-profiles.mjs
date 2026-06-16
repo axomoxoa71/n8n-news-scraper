@@ -110,6 +110,16 @@ function createDefaultSeedNews(profileName) {
   ];
 }
 
+function getExpectedSeedNewsCount(profile) {
+  const configuredCount = Number(profile?._seedNewsCount);
+
+  if (Number.isInteger(configuredCount) && configuredCount >= 0) {
+    return configuredCount;
+  }
+
+  return profile?.name === "AI Demo" ? 0 : 3;
+}
+
 async function fetchJson(url) {
   const response = await fetch(url);
 
@@ -213,9 +223,10 @@ async function verifySeedState(expectedProfiles) {
       `${apiBaseUrl}/api/news?sourceId=${actualProfile.sourceId}`,
     );
 
-    if (profileNews.length !== 3) {
+    const expectedNewsCount = getExpectedSeedNewsCount(expectedProfile);
+    if (profileNews.length !== expectedNewsCount) {
       throw new Error(
-        `Verification failed: profile "${expectedProfile.name}" expected 3 news items, got ${profileNews.length}.`,
+        `Verification failed: profile "${expectedProfile.name}" expected ${expectedNewsCount} news items, got ${profileNews.length}.`,
       );
     }
 
@@ -432,31 +443,38 @@ async function initializeProfiles() {
         );
       }
 
-      const seedNews = createDefaultSeedNews(createdProfile.name);
+      const expectedNewsCount = getExpectedSeedNewsCount(profile);
+      if (expectedNewsCount > 0) {
+        const seedNews = createDefaultSeedNews(createdProfile.name);
 
-      for (const seedNewsItem of seedNews) {
-        const createNewsResponse = await fetch(`${apiBaseUrl}/api/news`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            ...seedNewsItem,
-            sourceId: createdProfile.sourceId,
-          }),
-        });
+        for (const seedNewsItem of seedNews) {
+          const createNewsResponse = await fetch(`${apiBaseUrl}/api/news`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              ...seedNewsItem,
+              sourceId: createdProfile.sourceId,
+            }),
+          });
 
-        if (!createNewsResponse.ok) {
-          const errorBody = await createNewsResponse.json();
-          throw new Error(
-            `Failed to create seeded news for profile "${createdProfile.name}": ${errorBody.error || createNewsResponse.statusText}`,
-          );
+          if (!createNewsResponse.ok) {
+            const errorBody = await createNewsResponse.json();
+            throw new Error(
+              `Failed to create seeded news for profile "${createdProfile.name}": ${errorBody.error || createNewsResponse.statusText}`,
+            );
+          }
         }
-      }
 
-      console.log(
-        `  ✓ Created ${seedNews.length} seeded news item(s) for "${createdProfile.name}"`,
-      );
+        console.log(
+          `  ✓ Created ${seedNews.length} seeded news item(s) for "${createdProfile.name}"`,
+        );
+      } else {
+        console.log(
+          `  ✓ Skipped seeded news for "${createdProfile.name}" per seed contract`,
+        );
+      }
 
       existingNames.add(String(createdProfile.name).toLocaleLowerCase());
       successCount += 1;
